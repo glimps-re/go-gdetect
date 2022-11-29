@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 //
 // Usage:
 //
-//	gogdetect waitfor <filepath> [flags]
+//	go-gdetect waitfor <filepath> [flags]
 //
 // Flags:
 //

@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -248,9 +248,9 @@ func TestExecute(t *testing.T) {
 			var args []string
 
 			if tt.fields.command == "" {
-				args = append([]string{"gogdetect", tt.fields.args}, tt.fields.flags...)
+				args = append([]string{"go-gdetect", tt.fields.args}, tt.fields.flags...)
 			} else {
-				args = append([]string{"gogdetect", tt.fields.command, tt.fields.args}, tt.fields.flags...)
+				args = append([]string{"go-gdetect", tt.fields.command, tt.fields.args}, tt.fields.flags...)
 			}
 
 			args = append(args, []string{"--url", s.URL}...)

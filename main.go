@@ -2,10 +2,12 @@ package main
 
 import (
 	"os"
+
+	"github.com/glimps-re/go-gdetect/cmd/cli"
 )
 
 func main() {
-	err := Execute()
+	err := cli.Execute()
 	if err != nil {
 		os.Exit(1)
 	}

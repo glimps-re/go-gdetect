@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -9,18 +9,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// # GetCmd
+// # SearchCmd
 //
-// GetCmd is a CLI sub command to get an analysis giving its UUID.
-// It prints out analysis' result.
+// SearchCmd is a CLI sub command to search for an analysis giving a file's SHA256.
+// It print out analysis' result.
 //
 // Usage:
 //
-//	gogdetect get <file_uuid> [flags]
+//	go-gdetect search <sha256> [flags]
 //
 // Flags:
 //
-//	-h, --help            help for get
+//	-h, --help            help for search
 //	    --retrieve-urls   Retrieve expert and token view URL
 //
 // Global Flags:
@@ -28,11 +28,12 @@ import (
 //	--insecure       bypass HTTPS check
 //	--token string   token to API
 //	--url string     url to API
-var GetCmd = &cobra.Command{
-	Use:   "get <file_uuid>",
-	Short: "Get result by its uuid",
-	Long: `Retrieves a result given its UUID. It prints out analysis results 
-and eventually URL to access Token view and Expert analysis view.`,
+var SearchCmd = &cobra.Command{
+	Use:   "search <sha256>",
+	Short: "Search a previous analysis by SHA256",
+	Long: `search retrieves a result given a SHA256. It prints out analysis 
+results and eventually URL to access Token view and Expert 
+analysis view.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) (err error) {
 		apiToken, err := cmd.Flags().GetString("token")
@@ -55,7 +56,7 @@ and eventually URL to access Token view and Expert analysis view.`,
 			return
 		}
 
-		result, err := client.GetResultByUUID(context.Background(), args[0])
+		result, err := client.GetResultBySHA256(context.Background(), args[0])
 		if err != nil {
 			return
 		}
@@ -86,11 +87,11 @@ and eventually URL to access Token view and Expert analysis view.`,
 				fmt.Fprintf(cmd.OutOrStdout(), "Token view url: %s\n", tokenViewURL)
 			}
 		}
-		return
+		return nil
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(GetCmd)
-	GetCmd.Flags().Bool("retrieve-urls", false, "Retrieve expert and token view URL")
+	rootCmd.AddCommand(SearchCmd)
+	SearchCmd.Flags().Bool("retrieve-urls", false, "Retrieve expert and token view URL")
 }

@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 //
 // Usage:
 //
-//	gogdetect submit <filepath>
+//	go-gdetect submit <filepath>
 //
 // Flags:
 //
