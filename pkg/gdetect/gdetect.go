@@ -33,9 +33,11 @@ var (
 type GDetectSubmitter interface {
 	GetResultByUUID(ctx context.Context, uuid string) (result Result, err error)
 	GetResultBySHA256(ctx context.Context, sha256 string) (result Result, err error)
-	SubmitFile(ctx context.Context, filepath string, tags []string, description string, bypassCache bool) (uuid string, err error)
-	WaitForFile(ctx context.Context, filepath string, waitOptions WaitForOptions) (result Result, err error)
+	SubmitFile(ctx context.Context, filepath string, options SubmitOptions) (uuid string, err error)
+	WaitForFile(ctx context.Context, filepath string, options WaitForOptions) (result Result, err error)
 }
+
+var _ GDetectSubmitter = &Client{}
 
 // Client is the representation of a Detect API CLient.
 type Client struct {
