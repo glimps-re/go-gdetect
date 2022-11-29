@@ -1,21 +1,18 @@
-# gogdetect - library & client
+# go-gdetect - library & client
 
 A Go Client and a library for Glimps Malware detect API.
 
-gogdetect is a solution from GLIMPS *Inc.* for a better detection of malware. Contact us at contact@glimps.re for more information !  
+go-gdetect is a solution from GLIMPS *Inc.* for a better detection of malware. Contact us at contact@glimps.re for more information !  
 
 ## Description
 
-gogdetect aims to simplify use of *Glimps Detect*, a malware detectio solution from GLIMPS *Inc.*.
+go-gdetect aims to simplify use of *Glimps Detect*, a malware detectio solution from GLIMPS *Inc.*.
 
 This tool can be used by two ways:
 
-* As *shell* CLI: `./gogdetect /path/to/my/binary`
+* As *shell* CLI: `./go-gdetect /path/to/my/binary`
 * As go library (see below).
 
-## Installation
-
-TODO
 
 ## Usage
 
@@ -26,14 +23,15 @@ Before launch the tool, you can set the path to your GDetect URL and your authen
 `export API_URL=https://my.gdetect.service.tld` for the URL;  
 `export API_TOKEN=abcdef01-23456789-abcdef01-23456789-abcdef01` for the token.
 
-You can use *gogdetect* in your shell like this:
+You can use *go-gdetect* in your shell like this:
 
-```txt
-❯ ./gogdetect --help
-gogdetect - interact with GLIMPS malware detect API
+```bash
+$ go build
+$ ./go-gdetect --help
+go-gdetect - interact with GLIMPS malware detect API
 
 Usage:
-  gogdetect [command]
+  go-gdetect [command]
 
 Available Commands:
   completion  Generate the autocompletion script for the specified shell
@@ -44,17 +42,21 @@ Available Commands:
   waitfor     Submit a file to gdetect api and wait for results
 
 Flags:
-  -h, --help           help for gogdetect
+  -h, --help           help for go-gdetect
       --insecure       bypass HTTPS check
       --token string   token to API
       --url string     url to API
 
-Use "gogdetect [command] --help" for more information about a command.
+Use "go-gdetect [command] --help" for more information about a command.
 ```
 
 ### As a go library
 
-You can perform API call using `Client` from `gogdetect/pkg/api`.
+You can perform API call using `Client` from `github.com/glimps-re/go-gdetect/pkg/gdetect`.
+
+```bash
+go get github.com/glimps-re/go-gdetect
+```
 
 ```go
 package main
@@ -62,11 +64,11 @@ package main
 import (
  "context"
  "fmt"
- "gogdetect/pkg/api"
+ "github.com/glimps-re/go-gdetect/pkg/gdetect"
 )
 
 func main() {
- client, err := api.NewClient("https://my.gdetect.service.tld", "abcdef01-23456789-abcdef01-23456789-abcdef01", false)
+ client, err := gdetect.NewClient("https://my.gdetect.service.tld", "abcdef01-23456789-abcdef01-23456789-abcdef01", false)
  if err != nil {
   return
  }

@@ -1,9 +1,9 @@
-// Package gogdetect implements multiple commands to interact with GLIMPS
+// Package go-gdetect implements multiple commands to interact with GLIMPS
 // Malware detect API. To manipulate directly detect's API, use package
 // [pkg/gdetect/gdetect].
 //
 // Usage:
-// gogdetect [command]
+// go-gdetect [command]
 //
 // Available Commands:
 //
@@ -16,11 +16,11 @@
 //
 // Flags:
 //
-//	-h, --help           help for gogdetect
+//	-h, --help           help for go-gdetect
 //	--insecure       bypass HTTPS check
 //	--token string   token to API
 //	--url string     url to API
-package main
+package cli
 
 import (
 	"os"
@@ -29,8 +29,8 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "gogdetect",
-	Short: "gogdetect - interact with GLIMPS malware detect API",
+	Use:   "go-gdetect",
+	Short: "go-gdetect - interact with GLIMPS malware detect API",
 }
 
 func Execute() (err error) {
@@ -38,7 +38,7 @@ func Execute() (err error) {
 	cmd, _, errCmdNotFound := rootCmd.Find(os.Args[1:])
 	if errCmdNotFound != nil || cmd == nil {
 		// Not found: we launch default command (submit)
-		args := append([]string{"gogdetect", "submit"}, os.Args[1:]...)
+		args := append([]string{"go-gdetect", "submit"}, os.Args[1:]...)
 		os.Args = args
 	}
 
