@@ -20,4 +20,4 @@ jobs:
           project_path: "."
           binary_name: "go-gdetect"
           ldflags: "-s -w"
-          extra_files: README.md
+          extra_files: README.md LICENSE
