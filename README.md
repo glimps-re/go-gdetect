@@ -1,3 +1,7 @@
+[![CI](https://github.com/tj-actions/coverage-badge-go/workflows/CI/badge.svg)](https://github.com/glimps-glv/go-gdetect/actions?query=workflow%3ACI)
+![Coverage](https://img.shields.io/badge/Coverage-89.8%25-brightgreen)
+[![Update release version.](https://github.com/glimps-glv/go-gdetect/workflows/Update%20release%20version./badge.svg)](https://github.com/glimps-glv/go-gdetect?query=workflow%3A%22Update+release+version.%22)
+
 # go-gdetect - library & client
 
 A Go Client and a library for Glimps Malware detect API.
