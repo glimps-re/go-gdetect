@@ -16,7 +16,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           goos: ${{ matrix.goos }}
-          goarch: ${{ matric.goarch }}
+          goarch: ${{ matrix.goarch }}
           project_path: "."
           binary_name: "go-gdetect"
           ldflags: "-s -w"
