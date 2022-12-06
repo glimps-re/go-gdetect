@@ -1,3 +1,8 @@
+[![Build Status](https://github.com/glimps-re/go-gdetect/workflows/Go/badge.svg?branch=main)](https://github.com/glimps-re/go-gdetect/actions?query=branch%3Amain)
+[![Go Report Card](https://goreportcard.com/badge/github.com/glimps-re/go-gdetect)](https://goreportcard.com/report/github.com/glimps-re/go-gdetect)
+[![GoDoc](https://pkg.go.dev/badge/github.com/glimps-re/go-gdetect?status.svg)](https://pkg.go.dev/github.com/glimps-re/go-gdetect?tab=doc)
+[![Release](https://img.shields.io/github/release/glimps-re/go-gdetect.svg?style=flat-square)](https://github.com/glimps-re/go-gdetect/releases)
+
 # go-gdetect - library & client
 
 A Go Client and a library for Glimps Malware detect API.
