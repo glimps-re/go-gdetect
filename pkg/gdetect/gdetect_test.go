@@ -3,6 +3,7 @@ package gdetect
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -750,4 +751,33 @@ func TestClient_ExtractExpertViewURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Example_ClientSubmitFile() {
+	// example mock up
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Header().Add("Content-Type", "application/json")
+		w.Write([]byte(`{"status":false,"error":"unauthorized"}`))
+	}))
+
+	defer srv.Close()
+
+	client, err := NewClient(srv.URL, "2b886d5f-aa81d629-4299e60b-41b728ba-9bcbbc00", false)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	result, err := client.SubmitFile(context.Background(), "/bin/sh", SubmitOptions{
+		Tags:        []string{"test"},
+		Description: "test submission",
+		BypassCache: false,
+	})
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Println(result)
+	}
+	// Output:
+	// invalid response from endpoint, 401 Unauthorized: {"status":false,"error":"unauthorized"}
 }
