@@ -187,6 +187,24 @@ func (c *Client) prepareClient(request *http.Request) (client *http.Client) {
 	return
 }
 
+type HTTPError struct {
+	Status string
+	Code   int
+	Body   string
+}
+
+func (e HTTPError) Error() string {
+	return fmt.Sprintf("invalid response from endpoint, %s: %s", e.Status, e.Body)
+}
+
+func NewHTTPError(r *http.Response, body string) HTTPError {
+	return HTTPError{
+		Status: r.Status,
+		Code:   r.StatusCode,
+		Body:   body,
+	}
+}
+
 // GetResultByUUID retrieves result using results endpoint on Detect API with
 // given UUID.
 func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Result, err error) {
@@ -209,7 +227,7 @@ func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Resul
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		err = fmt.Errorf("invalid response from endpoint, %s: %s", resp.Status, string(rawBody))
+		err = NewHTTPError(resp, string(rawBody))
 		return
 	}
 
@@ -244,7 +262,7 @@ func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result R
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		err = fmt.Errorf("invalid response from endpoint, %s: %s", resp.Status, string(rawBody))
+		err = NewHTTPError(resp, string(rawBody))
 		return
 	}
 
@@ -361,7 +379,7 @@ func (c *Client) SubmitFile(ctx context.Context, filepath string, submitOptions 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		err = fmt.Errorf("invalid response from endpoint, %s: %s", resp.Status, string(rawBody))
+		err = NewHTTPError(resp, string(rawBody))
 		return
 	}
 
