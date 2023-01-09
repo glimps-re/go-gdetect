@@ -96,6 +96,7 @@ func TestClient_SubmitFile(t *testing.T) {
 		tags        []string
 		description string
 		bypassCache bool
+		filename    string
 	}
 
 	filepath := "../../tests/samples/false_mirai"
@@ -113,6 +114,17 @@ func TestClient_SubmitFile(t *testing.T) {
 				ctx:         context.Background(),
 				filepath:    filepath,
 				description: "valid test",
+			},
+			wantErr:  false,
+			wantUuid: "1234",
+		},
+		{
+			name: "VALID WITH FILENAME",
+			args: args{
+				ctx:         context.Background(),
+				filepath:    filepath,
+				description: "valid test",
+				filename:    "test.exe",
 			},
 			wantErr:  false,
 			wantUuid: "1234",
@@ -253,6 +265,7 @@ func TestClient_SubmitFile(t *testing.T) {
 				Description: tt.args.description,
 				Tags:        tt.args.tags,
 				BypassCache: tt.args.bypassCache,
+				Filename:    tt.args.filename,
 			}
 
 			gotUuid, err := client.SubmitFile(tt.args.ctx, tt.args.filepath, submitOptions)
