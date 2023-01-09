@@ -119,6 +119,7 @@ type SubmitOptions struct {
 	Tags        []string
 	Description string
 	BypassCache bool
+	Filename    string
 }
 
 // Options for WaitForFile method
@@ -307,7 +308,11 @@ func (c *Client) SubmitFile(ctx context.Context, filepath string, submitOptions 
 	writer := multipart.NewWriter(body)
 
 	// Create form-data header with given filename
-	part, err = writer.CreateFormFile("file", file.Name())
+	name := file.Name()
+	if submitOptions.Filename != "" {
+		name = submitOptions.Filename
+	}
+	part, err = writer.CreateFormFile("file", name)
 
 	if err != nil {
 		return
