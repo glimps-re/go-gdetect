@@ -794,3 +794,106 @@ func Example_ClientSubmitFile() {
 	// Output:
 	// invalid response from endpoint, 401 Unauthorized: {"status":false,"error":"unauthorized"}
 }
+
+func TestClient_GetFullSubmissionByUUID(t *testing.T) {
+	type args struct {
+		ctx  context.Context
+		uuid string
+	}
+	tests := []struct {
+		name       string
+		args       args
+		wantResult interface{}
+		wantErr    bool
+		timeout    time.Duration
+	}{
+		{
+			name: "TIMEOUT",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_timeout",
+			},
+			wantErr: true,
+			timeout: 5 * time.Millisecond,
+		},
+		{
+			name: "NOT FOUND",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_not_found",
+			},
+			wantErr: true,
+		},
+		{
+			name: "INTERNAL SERVER ERROR",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_server_error",
+			},
+			wantErr: true,
+		},
+		{
+			name: "BAD JSON",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_bad_json",
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(
+				http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+					if req.Header.Get("X-Auth-Token") != token {
+						t.Errorf("handler.GetResultByUUID() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
+					}
+					if req.Method != "GET" {
+						t.Errorf("handler.GetResultByUUID() %v error = unexpected METHOD: %v", tt.name, req.Method)
+					}
+					switch strings.TrimSpace(req.URL.Path) {
+					case "/api/lite/v2/results/1234_valid_test/full":
+						rw.WriteHeader(http.StatusOK)
+						rw.Write([]byte(`{"uuid":"1234_valid_test", "status": true, "done": true}`))
+					case "/api/lite/v2/results/1234_timeout/full":
+						time.Sleep(15 * time.Millisecond)
+						rw.WriteHeader(http.StatusOK)
+						rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+					case "/api/lite/v2/results/1234_not_found/full":
+						rw.WriteHeader(http.StatusNotFound)
+						rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+					case "/api/lite/v2/results/1234_server_error/full":
+						rw.WriteHeader(http.StatusInternalServerError)
+						rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+					case "/api/lite/v2/results/1234_bad_json/full":
+						rw.WriteHeader(http.StatusOK)
+						rw.Write([]byte(`{"uuid":"1234_timeout", "status": true "done": true`))
+					default:
+						t.Errorf("handler.GetResultByUUID() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
+					}
+				}),
+			)
+			defer s.Close()
+
+			client, err := NewClient(s.URL, token, false)
+			if err != nil {
+				return
+			}
+
+			if tt.timeout != 0 {
+				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
+				defer cancel()
+				tt.args.ctx = ctx
+			}
+
+			gotResult, err := client.GetFullSubmissionByUUID(tt.args.ctx, tt.args.uuid)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Client.GetFullSubmissionByUUID() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(gotResult, tt.wantResult) {
+				t.Errorf("Client.GetFullSubmissionByUUID() = %v, want %v", gotResult, tt.wantResult)
+			}
+		})
+	}
+}
