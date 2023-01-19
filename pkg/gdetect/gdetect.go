@@ -146,12 +146,13 @@ func NewClient(endpoint, token string, insecure bool) (client *Client, err error
 	}
 
 	client = &Client{
-		Endpoint: endpoint,
-		Token:    token,
-		Timeout:  DefaultTimeout,
-		transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure},
-		},
+		Endpoint:  endpoint,
+		Token:     token,
+		Timeout:   DefaultTimeout,
+		transport: http.DefaultTransport,
+	}
+	if insecure {
+		client.transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
 	return
