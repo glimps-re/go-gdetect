@@ -468,3 +468,38 @@ func (c *Client) ExtractExpertViewURL(result *Result) (urlExpertView string, err
 	urlExpertView = c.Endpoint + "/expert/en/analysis/advanced/" + sid
 	return
 }
+
+// GetFullSubmissionByUUID retrieves fullsubmission using results full endpoint
+// on Detect API with given UUID.
+func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (result interface{}, err error) {
+	request, err := c.prepareRequest(ctx, "GET", "/api/lite/v2/results/"+uuid+"/full", nil)
+	if err != nil {
+		return
+	}
+
+	client := c.prepareClient(request)
+
+	resp, err := client.Do(request)
+	if err != nil {
+		return
+	}
+
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		err = NewHTTPError(resp, string(rawBody))
+		return
+	}
+
+	err = json.Unmarshal(rawBody, &result)
+	if err != nil {
+		err = fmt.Errorf("error unmarshaling response json, %s", err)
+		return
+	}
+
+	return
+}
