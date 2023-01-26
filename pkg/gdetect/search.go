@@ -17,7 +17,7 @@ type results struct {
 	Submissions []submission `json:"submissions"`
 }
 
-func (c *Client) GetResults(ctx context.Context, from int, size int) (uuids []string, err error) {
+func (c *Client) GetResults(ctx context.Context, from int, size int, tags ...string) (uuids []string, err error) {
 	request, err := c.prepareRequest(ctx, "GET", "/api/lite/v2/results", nil)
 	if err != nil {
 		return
@@ -29,6 +29,10 @@ func (c *Client) GetResults(ctx context.Context, from int, size int) (uuids []st
 	q := request.URL.Query()
 	q.Add("from", fmt.Sprintf("%d", from))
 	q.Add("size", fmt.Sprintf("%d", size))
+	if len(tags) > 0 {
+		q.Add("tags", tags[0])
+	}
+
 	request.URL.RawQuery = q.Encode()
 
 	resp, err := client.Do(request)

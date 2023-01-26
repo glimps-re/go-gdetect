@@ -33,7 +33,7 @@ var (
 type GDetectSubmitter interface {
 	GetResultByUUID(ctx context.Context, uuid string) (result Result, err error)
 	GetResultBySHA256(ctx context.Context, sha256 string) (result Result, err error)
-	GetResults(ctx context.Context, from int, size int) (uuids []string, err error)
+	GetResults(ctx context.Context, from int, size int, tags ...string) (uuids []string, err error)
 	SubmitFile(ctx context.Context, filepath string, options SubmitOptions) (uuid string, err error)
 	WaitForFile(ctx context.Context, filepath string, options WaitForOptions) (result Result, err error)
 }
