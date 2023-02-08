@@ -8,16 +8,12 @@ import (
 	"net/http"
 )
 
-type submission struct {
-	UUID    string `json:"uuid"`
-	Malware bool   `json:"is_malware"`
-}
 type results struct {
 	Count       int          `json:"count"`
-	Submissions []submission `json:"submissions"`
+	Submissions []Submission `json:"submissions"`
 }
 
-func (c *Client) GetResults(ctx context.Context, from int, size int, tags ...string) (uuids []string, err error) {
+func (c *Client) GetResults(ctx context.Context, from int, size int, tags ...string) (submissions []Submission, err error) {
 	request, err := c.prepareRequest(ctx, "GET", "/api/lite/v2/results", nil)
 	if err != nil {
 		return
@@ -64,8 +60,7 @@ func (c *Client) GetResults(ctx context.Context, from int, size int, tags ...str
 		return
 	}
 	for _, res := range results.Submissions {
-		uuids = append(uuids, res.UUID)
+		submissions = append(submissions, res)
 	}
-
 	return
 }

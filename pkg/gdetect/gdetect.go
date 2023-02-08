@@ -33,7 +33,7 @@ var (
 type GDetectSubmitter interface {
 	GetResultByUUID(ctx context.Context, uuid string) (result Result, err error)
 	GetResultBySHA256(ctx context.Context, sha256 string) (result Result, err error)
-	GetResults(ctx context.Context, from int, size int, tags ...string) (uuids []string, err error)
+	GetResults(ctx context.Context, from int, size int, tags ...string) (submissions []Submission, err error)
 	SubmitFile(ctx context.Context, filepath string, options SubmitOptions) (uuid string, err error)
 	WaitForFile(ctx context.Context, filepath string, options WaitForOptions) (result Result, err error)
 }
@@ -112,6 +112,19 @@ type AvResult struct {
 	AVName string `json:"av"`
 	Result string `json:"result"`
 	Score  int    `json:"score"`
+}
+
+type Submission struct {
+	UUID     string   `json:"uuid"`
+	Malware  bool     `json:"is_malware"`
+	Done     bool     `json:"done"`
+	Error    bool     `json:"error"`
+	Filename string   `json:"filename"`
+	Date     int64    `json:"date"`
+	FileSize int64    `json:"file_size"`
+	FileType string   `json:"file_type"`
+	Score    int      `json:"score"`
+	Malwares []string `json:"malwares"`
 }
 
 // Options for SubmitFile method
