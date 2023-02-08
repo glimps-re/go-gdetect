@@ -26,7 +26,7 @@ func TestClient_GetResults(t *testing.T) {
 		args       args
 		serverCode int
 		serverBody string
-		wantUuids  []string
+		wantSubs   []Submission
 		wantErr    bool
 	}{
 		{
@@ -78,9 +78,12 @@ func TestClient_GetResults(t *testing.T) {
 				ctx: context.Background(),
 			},
 			serverCode: http.StatusOK,
-			serverBody: `{"count":2,"submissions":[{"uuid":"50e42d45-d837-4dca-9017-5f02284633be","is_malware":true},{"uuid":"99f59137-ec95-4927-b766-3d905be9d05d","is_malware":false}]}`,
+			serverBody: `{"count":2,"submissions":[{"uuid":"50e42d45-d837-4dca-9017-5f02284633be","is_malware":true,"done":true,"error":false,"filename":"","date":1200,"file_size":18,"file_type":"exe","score":1280,"malwares":["test_m2"]},{"uuid":"99f59137-ec95-4927-b766-3d905be9d05d","is_malware":false,"done":false,"error":false,"filename":"","date":1239,"file_size":17,"file_type":"text","score":127,"malwares":[]}]}`,
 			wantErr:    false,
-			wantUuids:  []string{"50e42d45-d837-4dca-9017-5f02284633be", "99f59137-ec95-4927-b766-3d905be9d05d"},
+			wantSubs: []Submission{
+				{UUID: "50e42d45-d837-4dca-9017-5f02284633be", Malware: true, Done: true, Score: 1280, FileSize: 18, FileType: "exe", Date: 1200, Malwares: []string{"test_m2"}},
+				{UUID: "99f59137-ec95-4927-b766-3d905be9d05d", Malware: false, Done: false, Score: 127, FileSize: 17, FileType: "text", Date: 1239, Malwares: []string{}},
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -107,8 +110,8 @@ func TestClient_GetResults(t *testing.T) {
 				t.Errorf("Client.GetResults() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(gotUuids, tt.wantUuids) {
-				t.Errorf("Client.GetResults() = %v, want %v", gotUuids, tt.wantUuids)
+			if !reflect.DeepEqual(gotUuids, tt.wantSubs) {
+				t.Errorf("Client.GetResults() = %v, want %v", gotUuids, tt.wantSubs)
 			}
 		})
 	}
