@@ -22,9 +22,10 @@ var token = "abcdef01-23456789-abcdef01-23456789-abcdef01"
 
 func TestNewClient(t *testing.T) {
 	type args struct {
-		endpoint string
-		token    string
-		insecure bool
+		endpoint   string
+		token      string
+		insecure   bool
+		httpClient *http.Client
 	}
 	tests := []struct {
 		name       string
@@ -35,9 +36,10 @@ func TestNewClient(t *testing.T) {
 		{
 			name: "valid",
 			args: args{
-				endpoint: "http://glimps/detect",
-				token:    token,
-				insecure: false,
+				endpoint:   "http://glimps/detect",
+				token:      token,
+				insecure:   false,
+				httpClient: nil,
 			},
 			wantErr: false,
 			wantClient: &Client{
@@ -48,34 +50,67 @@ func TestNewClient(t *testing.T) {
 		{
 			name: "empty token",
 			args: args{
-				endpoint: "http://glimps/detect",
-				token:    "",
-				insecure: false,
+				endpoint:   "http://glimps/detect",
+				token:      "",
+				insecure:   false,
+				httpClient: nil,
 			},
 			wantErr: true,
 		},
 		{
 			name: "invalid char in token",
 			args: args{
-				endpoint: "http://glimps/detect",
-				token:    "tbcdef01-23456789-abcdef01-23456789-abcdef01",
-				insecure: false,
+				endpoint:   "http://glimps/detect",
+				token:      "tbcdef01-23456789-abcdef01-23456789-abcdef01",
+				insecure:   false,
+				httpClient: nil,
 			},
 			wantErr: true,
 		},
 		{
 			name: "too little token",
 			args: args{
-				endpoint: "http://glimps/detect",
-				token:    "abcdef01",
-				insecure: false,
+				endpoint:   "http://glimps/detect",
+				token:      "abcdef01",
+				insecure:   false,
+				httpClient: nil,
 			},
 			wantErr: true,
+		},
+		{
+			name: "valid default http client",
+			args: args{
+				endpoint:   "http://glimps/detect",
+				token:      token,
+				insecure:   false,
+				httpClient: http.DefaultClient,
+			},
+			wantErr: false,
+			wantClient: &Client{
+				Endpoint:   "http://glimps/detect",
+				Token:      token,
+				HttpClient: http.DefaultClient,
+			},
+		},
+		{
+			name: "valid custom http client",
+			args: args{
+				endpoint:   "http://glimps/detect",
+				token:      token,
+				insecure:   false,
+				httpClient: &http.Client{Timeout: 2 * time.Second},
+			},
+			wantErr: false,
+			wantClient: &Client{
+				Endpoint:   "http://glimps/detect",
+				Token:      token,
+				HttpClient: &http.Client{Timeout: 2 * time.Second},
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotClient, err := NewClient(tt.args.endpoint, tt.args.token, tt.args.insecure)
+			gotClient, err := NewClient(tt.args.endpoint, tt.args.token, tt.args.insecure, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewClient() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -250,7 +285,7 @@ func TestClient_SubmitFile(t *testing.T) {
 			)
 			defer s.Close()
 
-			client, err := NewClient(s.URL, token, false)
+			client, err := NewClient(s.URL, token, false, nil)
 			if err != nil {
 				return
 			}
@@ -370,7 +405,7 @@ func TestClient_GetResultByUUID(t *testing.T) {
 			)
 			defer s.Close()
 
-			client, err := NewClient(s.URL, token, false)
+			client, err := NewClient(s.URL, token, false, nil)
 			if err != nil {
 				return
 			}
@@ -494,7 +529,7 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 			)
 			defer s.Close()
 
-			c, err := NewClient(s.URL, token, false)
+			c, err := NewClient(s.URL, token, false, nil)
 			if err != nil {
 				return
 			}
@@ -600,7 +635,7 @@ func TestClient_WaitForFile(t *testing.T) {
 			)
 			defer s.Close()
 
-			client, err := NewClient(s.URL, token, false)
+			client, err := NewClient(s.URL, token, false, nil)
 			if err != nil {
 				return
 			}
@@ -632,10 +667,9 @@ func TestClient_WaitForFile(t *testing.T) {
 
 func TestClient_ExtractTokenViewURL(t *testing.T) {
 	type fields struct {
-		Endpoint  string
-		Token     string
-		transport http.RoundTripper
-		Timeout   time.Duration
+		Endpoint string
+		Token    string
+		insecure bool
 	}
 	type args struct {
 		result *Result
@@ -652,7 +686,7 @@ func TestClient_ExtractTokenViewURL(t *testing.T) {
 			fields: fields{
 				Endpoint: "http://gdetect/api",
 				Token:    token,
-				Timeout:  180 * time.Second,
+				insecure: false,
 			},
 			args: args{
 				result: &Result{
@@ -668,7 +702,7 @@ func TestClient_ExtractTokenViewURL(t *testing.T) {
 			fields: fields{
 				Endpoint: "http://gdetect/api",
 				Token:    token,
-				Timeout:  180 * time.Second,
+				insecure: false,
 			},
 			args: args{
 				result: &Result{
@@ -681,10 +715,8 @@ func TestClient_ExtractTokenViewURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &Client{
-				Endpoint:  tt.fields.Endpoint,
-				Token:     tt.fields.Token,
-				transport: tt.fields.transport,
-				Timeout:   tt.fields.Timeout,
+				Endpoint: tt.fields.Endpoint,
+				Token:    tt.fields.Token,
 			}
 			gotURLTokenView, err := c.ExtractTokenViewURL(tt.args.result)
 			if (err != nil) != tt.wantErr {
@@ -700,10 +732,9 @@ func TestClient_ExtractTokenViewURL(t *testing.T) {
 
 func TestClient_ExtractExpertViewURL(t *testing.T) {
 	type fields struct {
-		Endpoint  string
-		Token     string
-		transport http.RoundTripper
-		Timeout   time.Duration
+		Endpoint string
+		Token    string
+		insecure bool
 	}
 	type args struct {
 		result *Result
@@ -720,7 +751,7 @@ func TestClient_ExtractExpertViewURL(t *testing.T) {
 			fields: fields{
 				Endpoint: "http://gdetect/api",
 				Token:    token,
-				Timeout:  180 * time.Second,
+				insecure: false,
 			},
 			args: args{
 				result: &Result{
@@ -736,7 +767,7 @@ func TestClient_ExtractExpertViewURL(t *testing.T) {
 			fields: fields{
 				Endpoint: "http://gdetect/api",
 				Token:    token,
-				Timeout:  180 * time.Second,
+				insecure: false,
 			},
 			args: args{
 				result: &Result{
@@ -749,10 +780,8 @@ func TestClient_ExtractExpertViewURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &Client{
-				Endpoint:  tt.fields.Endpoint,
-				Token:     tt.fields.Token,
-				transport: tt.fields.transport,
-				Timeout:   tt.fields.Timeout,
+				Endpoint: tt.fields.Endpoint,
+				Token:    tt.fields.Token,
 			}
 			gotURLExpertView, err := c.ExtractExpertViewURL(tt.args.result)
 			if (err != nil) != tt.wantErr {
@@ -776,7 +805,7 @@ func Example_ClientSubmitFile() {
 
 	defer srv.Close()
 
-	client, err := NewClient(srv.URL, "2b886d5f-aa81d629-4299e60b-41b728ba-9bcbbc00", false)
+	client, err := NewClient(srv.URL, "2b886d5f-aa81d629-4299e60b-41b728ba-9bcbbc00", false, nil)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -875,7 +904,7 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 			)
 			defer s.Close()
 
-			client, err := NewClient(s.URL, token, false)
+			client, err := NewClient(s.URL, token, false, nil)
 			if err != nil {
 				return
 			}

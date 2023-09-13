@@ -19,8 +19,6 @@ func (c *Client) GetResults(ctx context.Context, from int, size int, tags ...str
 		return
 	}
 
-	client := c.prepareClient(request)
-
 	// Add request queries
 	q := request.URL.Query()
 	q.Add("from", fmt.Sprintf("%d", from))
@@ -31,7 +29,7 @@ func (c *Client) GetResults(ctx context.Context, from int, size int, tags ...str
 
 	request.URL.RawQuery = q.Encode()
 
-	resp, err := client.Do(request)
+	resp, err := c.HttpClient.Do(request)
 	if err != nil {
 		return
 	}

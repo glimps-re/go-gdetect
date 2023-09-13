@@ -6,14 +6,11 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
-	"time"
 )
 
 func TestClient_GetResults(t *testing.T) {
 	type fields struct {
-		Token     string
-		transport http.RoundTripper
-		Timeout   time.Duration
+		Token string
 	}
 	type args struct {
 		ctx  context.Context
@@ -99,10 +96,9 @@ func TestClient_GetResults(t *testing.T) {
 			)
 			defer s.Close()
 			c := &Client{
-				Endpoint:  s.URL,
-				Token:     tt.fields.Token,
-				transport: tt.fields.transport,
-				Timeout:   tt.fields.Timeout,
+				Endpoint:   s.URL,
+				Token:      tt.fields.Token,
+				HttpClient: http.DefaultClient,
 			}
 
 			gotUuids, err := c.GetResults(tt.args.ctx, tt.args.from, tt.args.size)
