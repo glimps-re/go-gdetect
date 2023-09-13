@@ -35,7 +35,9 @@ type GDetectSubmitter interface {
 	GetResultBySHA256(ctx context.Context, sha256 string) (result Result, err error)
 	GetResults(ctx context.Context, from int, size int, tags ...string) (submissions []Submission, err error)
 	SubmitFile(ctx context.Context, filepath string, options SubmitOptions) (uuid string, err error)
+	SubmitReader(ctx context.Context, reader io.Reader, options SubmitOptions) (uuid string, err error)
 	WaitForFile(ctx context.Context, filepath string, options WaitForOptions) (result Result, err error)
+	WaitForReader(ctx context.Context, reader io.Reader, options WaitForOptions) (result Result, err error)
 }
 
 var _ GDetectSubmitter = &Client{}
@@ -516,4 +518,147 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 	}
 
 	return
+}
+
+// SubmitReader method submit a reader to Detect API.
+// it's possible to provides some params to be submitted with the reader.
+func (c *Client) SubmitReader(ctx context.Context, reader io.Reader, submitOptions SubmitOptions) (uuid string, err error) {
+
+	// Struct corresponding to submit json result
+	type responseT struct {
+		Status bool   `json:"status"`
+		UUID   string `json:"uuid,omitempty"`
+		Error  string `json:"error,omitempty"`
+	}
+
+	var (
+		part     io.Writer
+		response responseT
+		resp     *http.Response
+	)
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// Submit file even if it exists in db
+	if submitOptions.BypassCache {
+		part, err = writer.CreateFormField("bypass-cache")
+		if err != nil {
+			return
+		}
+		_, err = part.Write([]byte("true"))
+		if err != nil {
+			return
+		}
+	}
+
+	// Add description if filled in
+	if submitOptions.Description != "" {
+		part, err = writer.CreateFormField("description")
+		if err != nil {
+			return
+		}
+		_, err = part.Write([]byte(submitOptions.Description))
+		if err != nil {
+			return
+		}
+	}
+
+	// Add all tags if filled in
+	if len(submitOptions.Tags) > 0 {
+		part, err = writer.CreateFormField("tags")
+		if err != nil {
+			return
+		}
+
+		_, err = part.Write([]byte(strings.Join(submitOptions.Tags, ",")))
+		if err != nil {
+			return
+		}
+	}
+
+	writer.Close()
+
+	// Post file to API
+	request, err := c.prepareRequest(ctx, "POST", "/api/lite/v2/submit", reader)
+	if err != nil {
+		return
+	}
+	request.Header.Add("Content-Type", writer.FormDataContentType())
+
+	client := c.prepareClient(request)
+
+	resp, err = client.Do(request)
+	if err != nil {
+		return
+	}
+
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		err = NewHTTPError(resp, string(rawBody))
+		return
+	}
+
+	err = json.Unmarshal(rawBody, &response)
+	if err != nil {
+		err = fmt.Errorf("error unmarshaling response json, %s", err)
+		return
+	}
+
+	if !response.Status {
+		err = fmt.Errorf("%s", response.Error)
+		return
+	}
+	uuid = response.UUID
+	return
+}
+
+// WaitForReader method submit a reader, using SubmitReader method, and try to get
+// analysis results using GetResultByUUID method.
+func (c *Client) WaitForReader(ctx context.Context, reader io.Reader, waitOptions WaitForOptions) (result Result, err error) {
+	timeout := time.Second * 180
+	if waitOptions.Timeout != 0*time.Second {
+		timeout = waitOptions.Timeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Submit file
+	submitOptions := SubmitOptions{
+		Tags:        waitOptions.Tags,
+		Description: waitOptions.Description,
+		BypassCache: waitOptions.BypassCache,
+	}
+	uuid, err := c.SubmitReader(ctx, reader, submitOptions)
+	if err != nil {
+		return
+	}
+
+	// Ticker to perform get every n seconds
+	pullTime := time.Second * 2
+	if waitOptions.PullTime != 0*time.Second {
+		pullTime = waitOptions.PullTime
+	}
+	ticker := time.NewTicker(pullTime)
+
+	for {
+		select {
+		case <-ticker.C:
+			result, err = c.GetResultByUUID(ctx, uuid)
+			if err != nil {
+				return
+			}
+			if result.Done {
+				return
+			}
+		case <-ctx.Done():
+			err = ErrTimeout
+			return
+		}
+	}
 }
