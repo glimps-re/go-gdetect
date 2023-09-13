@@ -177,7 +177,7 @@ func NewClient(endpoint, token string, insecure bool, httpClient *http.Client) (
 }
 
 func checkToken(token string) (err error) {
-	if !regexp.MustCompile(`^[a-f0-9-]{44}$`).MatchString(token) {
+	if !regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{8}-[a-f0-9]{8}-[a-f0-9]{8}-[a-f0-9]{8}$`).MatchString(token) {
 		err = ErrBadToken
 		return
 	}
