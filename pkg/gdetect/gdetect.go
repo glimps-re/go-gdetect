@@ -541,7 +541,7 @@ func (c *Client) SubmitReader(ctx context.Context, reader io.Reader, submitOptio
 	writer := multipart.NewWriter(body)
 
 	// Create form-data header with given filename
-	name := "Olfeo SAAS"
+	name := ""
 	if submitOptions.Filename != "" {
 		name = submitOptions.Filename
 	}
