@@ -540,6 +540,22 @@ func (c *Client) SubmitReader(ctx context.Context, reader io.Reader, submitOptio
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
+	// Create form-data header with given filename
+	name := "Olfeo SAAS"
+	if submitOptions.Filename != "" {
+		name = submitOptions.Filename
+	}
+	part, err = writer.CreateFormFile("file", name)
+	if err != nil {
+		return
+	}
+
+	// Copy file content
+	_, err = io.Copy(part, reader)
+	if err != nil {
+		return
+	}
+
 	// Submit file even if it exists in db
 	if submitOptions.BypassCache {
 		part, err = writer.CreateFormField("bypass-cache")
@@ -580,7 +596,7 @@ func (c *Client) SubmitReader(ctx context.Context, reader io.Reader, submitOptio
 	writer.Close()
 
 	// Post file to API
-	request, err := c.prepareRequest(ctx, "POST", "/api/lite/v2/submit", reader)
+	request, err := c.prepareRequest(ctx, "POST", "/api/lite/v2/submit", body)
 	if err != nil {
 		return
 	}
