@@ -44,10 +44,9 @@ var _ GDetectSubmitter = &Client{}
 
 // Client is the representation of a Detect API CLient.
 type Client struct {
-	Endpoint  string
-	Token     string
-	transport http.RoundTripper
-	Timeout   time.Duration
+	Endpoint   string
+	Token      string
+	HttpClient *http.Client
 }
 
 // Result represent typical json result from Detect API operations like get or
@@ -155,23 +154,26 @@ var DefaultTimeout = time.Minute * 5
 //
 // If Client is well-formed, it returns error == nil. If error != nil, that
 // could mean that Token is invalid (by its length for example).
-func NewClient(endpoint, token string, insecure bool) (client *Client, err error) {
+func NewClient(endpoint, token string, insecure bool, httpClient *http.Client) (client *Client, err error) {
 	err = checkToken(token)
 	if err != nil {
 		return
 	}
 
 	client = &Client{
-		Endpoint:  endpoint,
-		Token:     token,
-		Timeout:   DefaultTimeout,
-		transport: http.DefaultTransport,
+		Endpoint:   endpoint,
+		Token:      token,
+		HttpClient: httpClient,
 	}
-	if insecure {
-		client.transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	if httpClient == nil {
+		transport := http.DefaultTransport
+		if insecure {
+			transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		}
+		client.HttpClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
 	}
 
-	return
+	return client, nil
 }
 
 func checkToken(token string) (err error) {
@@ -194,14 +196,9 @@ func (c *Client) prepareRequest(ctx context.Context, method string, path string,
 	u.Scheme = urlTmp.Scheme
 	u.Path = path
 	request, err = http.NewRequestWithContext(ctx, method, u.String(), body)
-	return
-}
-
-func (c *Client) prepareClient(request *http.Request) (client *http.Client) {
 	if c.Token != "" {
 		request.Header.Add("X-Auth-Token", c.Token)
 	}
-	client = &http.Client{Transport: c.transport, Timeout: c.Timeout}
 	return
 }
 
@@ -231,9 +228,7 @@ func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Resul
 		return
 	}
 
-	client := c.prepareClient(request)
-
-	resp, err := client.Do(request)
+	resp, err := c.HttpClient.Do(request)
 	if err != nil {
 		return
 	}
@@ -266,9 +261,7 @@ func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result R
 		return
 	}
 
-	client := c.prepareClient(request)
-
-	resp, err := client.Do(request)
+	resp, err := c.HttpClient.Do(request)
 	if err != nil {
 		return
 	}
@@ -388,9 +381,7 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 	}
 	request.Header.Add("Content-Type", writer.FormDataContentType())
 
-	client := c.prepareClient(request)
-
-	resp, err = client.Do(request)
+	resp, err = c.HttpClient.Do(request)
 	if err != nil {
 		return
 	}
@@ -510,9 +501,7 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 		return
 	}
 
-	client := c.prepareClient(request)
-
-	resp, err := client.Do(request)
+	resp, err := c.HttpClient.Do(request)
 	if err != nil {
 		return
 	}
