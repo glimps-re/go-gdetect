@@ -192,6 +192,17 @@ func TestExecute(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "VALID STATUS",
+			fields: fields{
+				command: "status",
+				flags: []string{
+					"--token", token,
+				},
+			},
+			wantOut: `{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`,
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -231,6 +242,9 @@ func TestExecute(t *testing.T) {
 				case "/api/lite/v2/search/1234":
 					rw.WriteHeader(http.StatusOK)
 					rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+				case "/api/lite/v2/status":
+					rw.WriteHeader(http.StatusOK)
+					rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
 				default:
 					t.Errorf("handler.GetResultByUUID() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 				}
@@ -245,13 +259,14 @@ func TestExecute(t *testing.T) {
 			cmd.SetOut(bufOut)
 			cmd.SetErr(bufErr)
 
-			var args []string
-
-			if tt.fields.command == "" {
-				args = append([]string{"go-gdetect", tt.fields.args}, tt.fields.flags...)
-			} else {
-				args = append([]string{"go-gdetect", tt.fields.command, tt.fields.args}, tt.fields.flags...)
+			args := []string{"go-gdetect"}
+			if tt.fields.command != "" {
+				args = append(args, tt.fields.command)
 			}
+			if tt.fields.args != "" {
+				args = append(args, tt.fields.args)
+			}
+			args = append(args, tt.fields.flags...)
 
 			args = append(args, []string{"--url", s.URL}...)
 
@@ -263,7 +278,7 @@ func TestExecute(t *testing.T) {
 			}
 
 			if !strings.Contains(bufOut.String(), tt.wantOut) {
-				t.Errorf("%s command failed, result = %v, want %v", tt.fields.command, bufOut.String(), tt.wantOut)
+				t.Errorf("%s command failed, result = %v, want %v, stderr: %v", tt.fields.command, bufOut.String(), tt.wantOut, bufErr.String())
 			}
 		})
 	}

@@ -38,6 +38,7 @@ type GDetectSubmitter interface {
 	SubmitReader(ctx context.Context, r io.Reader, options SubmitOptions) (uuid string, err error)
 	WaitForFile(ctx context.Context, filepath string, options WaitForOptions) (result Result, err error)
 	WaitForReader(ctx context.Context, r io.Reader, options WaitForOptions) (result Result, err error)
+	GetProfileStatus(ctx context.Context) (status ProfileStatus, err error)
 }
 
 var _ GDetectSubmitter = &Client{}
@@ -144,6 +145,19 @@ type WaitForOptions struct {
 	Timeout     time.Duration
 	PullTime    time.Duration
 	Filename    string
+}
+
+// ProfileStatus contains information about profile status
+type ProfileStatus struct {
+	// DailyQuota is the amount of analyses allowed in 24h
+	DailyQuota int `json:"daily_quota"`
+	// AvailableDailyQuota is the amount of analyses currently available
+	AvailableDailyQuota int `json:"available_daily_quota"`
+	// Cache is true if the profile is configured to use detect SHA256 cache
+	Cache bool `json:"cache"`
+	// EstimatedAnalysisDuration is an estimated duration for the next analysis in milliseconds
+	// It's an optimistic estimation based on the average analysis time and the analysis queue
+	EstimatedAnalysisDuration int `json:"estimated_analysis_duration"`
 }
 
 // Default timeout for gdetect client
@@ -520,6 +534,37 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 	err = json.Unmarshal(rawBody, &result)
 	if err != nil {
 		err = fmt.Errorf("error unmarshalling response json, %s", err)
+		return
+	}
+
+	return
+}
+
+func (c *Client) GetProfileStatus(ctx context.Context) (status ProfileStatus, err error) {
+	request, err := c.prepareRequest(ctx, "GET", "/api/lite/v2/status", nil)
+	if err != nil {
+		return
+	}
+
+	resp, err := c.HttpClient.Do(request)
+	if err != nil {
+		return
+	}
+
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		err = NewHTTPError(resp, string(rawBody))
+		return
+	}
+
+	err = json.Unmarshal(rawBody, &status)
+	if err != nil {
+		err = fmt.Errorf("error unmarshaling response json, %s", err)
 		return
 	}
 
