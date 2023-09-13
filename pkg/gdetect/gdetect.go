@@ -35,7 +35,9 @@ type GDetectSubmitter interface {
 	GetResultBySHA256(ctx context.Context, sha256 string) (result Result, err error)
 	GetResults(ctx context.Context, from int, size int, tags ...string) (submissions []Submission, err error)
 	SubmitFile(ctx context.Context, filepath string, options SubmitOptions) (uuid string, err error)
+	SubmitReader(ctx context.Context, r io.Reader, options SubmitOptions) (uuid string, err error)
 	WaitForFile(ctx context.Context, filepath string, options WaitForOptions) (result Result, err error)
+	WaitForReader(ctx context.Context, r io.Reader, options WaitForOptions) (result Result, err error)
 }
 
 var _ GDetectSubmitter = &Client{}
@@ -142,6 +144,7 @@ type WaitForOptions struct {
 	BypassCache bool
 	Timeout     time.Duration
 	PullTime    time.Duration
+	Filename    string
 }
 
 // Default timeout for gdetect client
@@ -248,7 +251,7 @@ func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Resul
 
 	err = json.Unmarshal(rawBody, &result)
 	if err != nil {
-		err = fmt.Errorf("error unmarshaling response json, %s", err)
+		err = fmt.Errorf("error unmarshalling response json, %s", err)
 		return
 	}
 
@@ -283,17 +286,31 @@ func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result R
 
 	err = json.Unmarshal(rawBody, &result)
 	if err != nil {
-		err = fmt.Errorf("error unmarshaling response json, %s", err)
+		err = fmt.Errorf("error unmarshalling response json, %s", err)
 		return
 	}
 
 	return
 }
 
-// SubmitFile method submit a file to Detect API. The file is described by its
+// SubmitFile submits a file to Detect API. The file is described by its
 // path and it's possible to provides some params to be submitted with the file.
 func (c *Client) SubmitFile(ctx context.Context, filepath string, submitOptions SubmitOptions) (uuid string, err error) {
+	file, err := os.Open(filepath)
+	if err != nil {
+		return
+	}
+	defer file.Close()
 
+	if submitOptions.Filename == "" {
+		submitOptions.Filename = file.Name()
+	}
+
+	return c.SubmitReader(ctx, file, submitOptions)
+}
+
+// SubmitReader submits a file to Detect API.
+func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions SubmitOptions) (uuid string, err error) {
 	// Struct corresponding to submit json result
 	type responseT struct {
 		Status bool   `json:"status"`
@@ -307,33 +324,20 @@ func (c *Client) SubmitFile(ctx context.Context, filepath string, submitOptions 
 		resp     *http.Response
 	)
 
-	file, err := os.Open(filepath)
-	if err != nil {
-		return
-	}
-	defer file.Close()
-
-	if file == nil {
-		err = fmt.Errorf("invalid file")
-		return
-	}
-
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
 	// Create form-data header with given filename
-	name := file.Name()
-	if submitOptions.Filename != "" {
-		name = submitOptions.Filename
+	if submitOptions.Filename == "" {
+		submitOptions.Filename = "unknown"
 	}
-	part, err = writer.CreateFormFile("file", name)
-
+	part, err = writer.CreateFormFile("file", submitOptions.Filename)
 	if err != nil {
 		return
 	}
 
 	// Copy file content
-	_, err = io.Copy(part, file)
+	_, err = io.Copy(part, r)
 	if err != nil {
 		return
 	}
@@ -404,7 +408,7 @@ func (c *Client) SubmitFile(ctx context.Context, filepath string, submitOptions 
 
 	err = json.Unmarshal(rawBody, &response)
 	if err != nil {
-		err = fmt.Errorf("error unmarshaling response json, %s", err)
+		err = fmt.Errorf("error unmarshalling response json, %s", err)
 		return
 	}
 
@@ -416,9 +420,23 @@ func (c *Client) SubmitFile(ctx context.Context, filepath string, submitOptions 
 	return
 }
 
-// WaitForFile method submit a file, using SubmitFile method, and try to get
+// WaitForFile submits a file, using SubmitFile method, and try to get
 // analysis results using GetResultByUUID method.
 func (c *Client) WaitForFile(ctx context.Context, filepath string, waitOptions WaitForOptions) (result Result, err error) {
+	file, err := os.Open(filepath)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	if waitOptions.Filename == "" {
+		waitOptions.Filename = file.Name()
+	}
+
+	return c.WaitForReader(ctx, file, waitOptions)
+}
+
+func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions WaitForOptions) (result Result, err error) {
 	timeout := time.Second * 180
 	if waitOptions.Timeout != 0*time.Second {
 		timeout = waitOptions.Timeout
@@ -431,8 +449,9 @@ func (c *Client) WaitForFile(ctx context.Context, filepath string, waitOptions W
 		Tags:        waitOptions.Tags,
 		Description: waitOptions.Description,
 		BypassCache: waitOptions.BypassCache,
+		Filename:    waitOptions.Filename,
 	}
-	uuid, err := c.SubmitFile(ctx, filepath, submitOptions)
+	uuid, err := c.SubmitReader(ctx, r, submitOptions)
 	if err != nil {
 		return
 	}
@@ -461,7 +480,7 @@ func (c *Client) WaitForFile(ctx context.Context, filepath string, waitOptions W
 	}
 }
 
-// Extract URL token view from given result, use client to retrieve API base endpoint
+// ExtractTokenViewURL extracts URL token view from given result, use client to retrieve API base endpoint
 func (c *Client) ExtractTokenViewURL(result *Result) (urlTokenView string, err error) {
 	token := result.Token
 	if token == "" {
@@ -472,7 +491,7 @@ func (c *Client) ExtractTokenViewURL(result *Result) (urlTokenView string, err e
 	return
 }
 
-// Extract URL analysis expert view from given result, use client to retrieve API base endpoint
+// ExtractExpertViewURL extracts URL analysis expert view from given result, use client to retrieve API base endpoint
 func (c *Client) ExtractExpertViewURL(result *Result) (urlExpertView string, err error) {
 	sid := result.SID
 	if sid == "" {
@@ -483,7 +502,7 @@ func (c *Client) ExtractExpertViewURL(result *Result) (urlExpertView string, err
 	return
 }
 
-// GetFullSubmissionByUUID retrieves fullsubmission using results full endpoint
+// GetFullSubmissionByUUID retrieves full submission using results full endpoint
 // on Detect API with given UUID.
 func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (result interface{}, err error) {
 	request, err := c.prepareRequest(ctx, "GET", "/api/lite/v2/results/"+uuid+"/full", nil)
@@ -511,7 +530,7 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 
 	err = json.Unmarshal(rawBody, &result)
 	if err != nil {
-		err = fmt.Errorf("error unmarshaling response json, %s", err)
+		err = fmt.Errorf("error unmarshalling response json, %s", err)
 		return
 	}
 
