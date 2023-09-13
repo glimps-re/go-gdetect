@@ -57,8 +57,6 @@ func (c *Client) GetResults(ctx context.Context, from int, size int, tags ...str
 		err = fmt.Errorf("error unmarshaling response json, %s", err)
 		return
 	}
-	for _, res := range results.Submissions {
-		submissions = append(submissions, res)
-	}
+	submissions = append(submissions, results.Submissions...)
 	return
 }
