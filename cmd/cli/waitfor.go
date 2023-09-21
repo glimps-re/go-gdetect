@@ -83,7 +83,7 @@ URL to token view and expert analysis view.`,
 			return
 		}
 
-		client, err := gdetect.NewClient(apiEndpoint, apiToken, disableSSLChecking)
+		client, err := gdetect.NewClient(apiEndpoint, apiToken, disableSSLChecking, nil)
 		if err != nil {
 			return
 		}
