@@ -3,6 +3,7 @@ package gdetect
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -924,5 +925,31 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 				t.Errorf("Client.GetFullSubmissionByUUID() = %v, want %v", gotResult, tt.wantResult)
 			}
 		})
+	}
+}
+
+func TestClient_Ready_ok(t *testing.T) {
+	svr := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		res.WriteHeader(http.StatusNotFound)
+	}))
+	defer svr.Close()
+	client, _ := NewClient(svr.URL, token, false, nil)
+
+	err := client.Ready(context.Background())
+	if err != nil {
+		t.Errorf("client.Ready() = %v, want %v", err, nil)
+	}
+}
+
+func TestClient_Ready_error(t *testing.T) {
+	svr := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		res.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer svr.Close()
+	client, _ := NewClient(svr.URL, token, false, nil)
+
+	err := client.Ready(context.Background())
+	if !errors.Is(err, ErrNotReady) {
+		t.Errorf("client.Ready() = %v, want %v", err, ErrNotReady)
 	}
 }

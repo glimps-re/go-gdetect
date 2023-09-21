@@ -38,6 +38,7 @@ type GDetectSubmitter interface {
 	SubmitReader(ctx context.Context, r io.Reader, options SubmitOptions) (uuid string, err error)
 	WaitForFile(ctx context.Context, filepath string, options WaitForOptions) (result Result, err error)
 	WaitForReader(ctx context.Context, r io.Reader, options WaitForOptions) (result Result, err error)
+	Ready(ctx context.Context) (err error)
 }
 
 var _ GDetectSubmitter = &Client{}
@@ -524,4 +525,21 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 	}
 
 	return
+}
+
+// Ready retrieves status endpoint. Test the Token and endpoint availability.
+func (c *Client) Ready(ctx context.Context) (err error) {
+	request, err := c.prepareRequest(ctx, "HEAD", "", nil)
+	if err != nil {
+		return
+	}
+	response, err := c.HttpClient.Do(request)
+	if err != nil {
+		return
+	}
+	if response.StatusCode != http.StatusNotFound {
+		// TODO implement a ready endpoint on gdetect backend
+		return fmt.Errorf("wrong HTTP status code %d, %w", response.StatusCode, ErrNotReady)
+	}
+	return nil
 }
