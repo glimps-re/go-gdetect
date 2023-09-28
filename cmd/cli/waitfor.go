@@ -88,12 +88,18 @@ URL to token view and expert analysis view.`,
 			return
 		}
 
+		password, err := cmd.Flags().GetString("password")
+		if err != nil {
+			return
+		}
+
 		waitForOptions := gdetect.WaitForOptions{
-			Tags:        tags,
-			Description: description,
-			Timeout:     time.Duration(timeout) * time.Second,
-			BypassCache: bypassCache,
-			PullTime:    time.Duration(pullTime) * time.Second,
+			Tags:            tags,
+			Description:     description,
+			Timeout:         time.Duration(timeout) * time.Second,
+			BypassCache:     bypassCache,
+			PullTime:        time.Duration(pullTime) * time.Second,
+			ArchivePassword: password,
 		}
 
 		result, err := client.WaitForFile(context.Background(), args[0], waitForOptions)
@@ -141,4 +147,5 @@ func init() {
 	WaitForCmd.Flags().Int("timeout", 180, "Set a timeout in seconds")
 	WaitForCmd.Flags().Bool("retrieve-urls", false, "Retrieve expert and token view URL")
 	WaitForCmd.Flags().Int("pull-time", 2, "Set time to wait between each request trying get result, in seconds")
+	WaitForCmd.Flags().StringP("password", "p", "", "Password used to extract archive")
 }

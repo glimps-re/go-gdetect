@@ -140,20 +140,22 @@ type Submission struct {
 
 // Options for SubmitFile method
 type SubmitOptions struct {
-	Tags        []string
-	Description string
-	BypassCache bool
-	Filename    string
+	Tags            []string
+	Description     string
+	BypassCache     bool
+	Filename        string
+	ArchivePassword string
 }
 
 // Options for WaitForFile method
 type WaitForOptions struct {
-	Tags        []string
-	Description string
-	BypassCache bool
-	Timeout     time.Duration
-	PullTime    time.Duration
-	Filename    string
+	Tags            []string
+	Description     string
+	BypassCache     bool
+	ArchivePassword string
+	Timeout         time.Duration
+	PullTime        time.Duration
+	Filename        string
 }
 
 // ProfileStatus contains information about profile status
@@ -360,37 +362,28 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 
 	// Submit file even if it exists in db
 	if submitOptions.BypassCache {
-		part, err = writer.CreateFormField("bypass-cache")
-		if err != nil {
-			return
-		}
-		_, err = part.Write([]byte("true"))
-		if err != nil {
+		if err = addFormField(writer, "bypass-cache", "true"); err != nil {
 			return
 		}
 	}
 
 	// Add description if filled in
 	if submitOptions.Description != "" {
-		part, err = writer.CreateFormField("description")
-		if err != nil {
-			return
-		}
-		_, err = part.Write([]byte(submitOptions.Description))
-		if err != nil {
+		if err = addFormField(writer, "description", submitOptions.Description); err != nil {
 			return
 		}
 	}
 
 	// Add all tags if filled in
 	if len(submitOptions.Tags) > 0 {
-		part, err = writer.CreateFormField("tags")
-		if err != nil {
+		if err = addFormField(writer, "tags", strings.Join(submitOptions.Tags, ",")); err != nil {
 			return
 		}
+	}
 
-		_, err = part.Write([]byte(strings.Join(submitOptions.Tags, ",")))
-		if err != nil {
+	// Add archive_password if filled in
+	if submitOptions.ArchivePassword != "" {
+		if err = addFormField(writer, "archive_password", submitOptions.ArchivePassword); err != nil {
 			return
 		}
 	}
@@ -434,6 +427,18 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 	return
 }
 
+func addFormField(w *multipart.Writer, field string, value string) (err error) {
+	part, err := w.CreateFormField(field)
+	if err != nil {
+		return
+	}
+	_, err = part.Write([]byte(value))
+	if err != nil {
+		return
+	}
+	return
+}
+
 // WaitForFile submits a file, using SubmitFile method, and try to get
 // analysis results using GetResultByUUID method.
 func (c *Client) WaitForFile(ctx context.Context, filepath string, waitOptions WaitForOptions) (result Result, err error) {
@@ -460,10 +465,11 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 
 	// Submit file
 	submitOptions := SubmitOptions{
-		Tags:        waitOptions.Tags,
-		Description: waitOptions.Description,
-		BypassCache: waitOptions.BypassCache,
-		Filename:    waitOptions.Filename,
+		Tags:            waitOptions.Tags,
+		Description:     waitOptions.Description,
+		BypassCache:     waitOptions.BypassCache,
+		ArchivePassword: waitOptions.ArchivePassword,
+		Filename:        waitOptions.Filename,
 	}
 	uuid, err := c.SubmitReader(ctx, r, submitOptions)
 	if err != nil {
