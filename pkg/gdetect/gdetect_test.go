@@ -126,12 +126,13 @@ func TestNewClient(t *testing.T) {
 
 func TestClient_SubmitFile(t *testing.T) {
 	type args struct {
-		ctx         context.Context
-		filepath    string
-		tags        []string
-		description string
-		bypassCache bool
-		filename    string
+		ctx              context.Context
+		filepath         string
+		tags             []string
+		description      string
+		bypassCache      bool
+		archive_password string
+		filename         string
 	}
 
 	filepath := "../../tests/samples/false_mirai"
@@ -184,11 +185,12 @@ func TestClient_SubmitFile(t *testing.T) {
 		{
 			name: "PARAMS USE",
 			args: args{
-				ctx:         context.Background(),
-				filepath:    filepath,
-				description: "file params",
-				tags:        []string{"tag1", "tag2"},
-				bypassCache: true,
+				ctx:              context.Background(),
+				filepath:         filepath,
+				description:      "file params",
+				tags:             []string{"tag1", "tag2"},
+				bypassCache:      true,
+				archive_password: "test",
 			},
 			wantErr:  false,
 			wantUuid: "12345",
@@ -254,7 +256,7 @@ func TestClient_SubmitFile(t *testing.T) {
 							return
 						}
 						switch {
-						case req.FormValue("bypass-cache") != "true", req.FormValue("description") != "file params", req.FormValue("tags") != "tag1,tag2":
+						case req.FormValue("bypass-cache") != "true", req.FormValue("description") != "file params", req.FormValue("tags") != "tag1,tag2", req.FormValue("archive_password") != "test":
 							return
 						}
 						f, h, err := req.FormFile("file")
@@ -297,10 +299,11 @@ func TestClient_SubmitFile(t *testing.T) {
 			}
 
 			submitOptions := SubmitOptions{
-				Description: tt.args.description,
-				Tags:        tt.args.tags,
-				BypassCache: tt.args.bypassCache,
-				Filename:    tt.args.filename,
+				Description:     tt.args.description,
+				Tags:            tt.args.tags,
+				BypassCache:     tt.args.bypassCache,
+				Filename:        tt.args.filename,
+				ArchivePassword: tt.args.archive_password,
 			}
 
 			gotUuid, err := client.SubmitFile(tt.args.ctx, tt.args.filepath, submitOptions)

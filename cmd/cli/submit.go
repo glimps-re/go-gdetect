@@ -21,8 +21,9 @@ import (
 //
 //	-d, --description string   Description for the file
 //	-h, --help                 help for submit
-//	    --no-cache             Submit file even if a result already exists
+//	--no-cache                 Submit file even if a result already exists
 //	-t, --tag strings          Tag list
+//	-p, --password string      Password used to extract archive
 //
 // Global Flags:
 //
@@ -66,15 +67,21 @@ analysis UUID and print it out.`,
 			return
 		}
 
+		password, err := cmd.Flags().GetString("password")
+		if err != nil {
+			return
+		}
+
 		client, err := gdetect.NewClient(apiEndpoint, apiToken, disableSSLChecking, nil)
 		if err != nil {
 			return
 		}
 
 		submitOptions := gdetect.SubmitOptions{
-			Description: description,
-			Tags:        tags,
-			BypassCache: bypassCache,
+			Description:     description,
+			Tags:            tags,
+			BypassCache:     bypassCache,
+			ArchivePassword: password,
 		}
 
 		uuid, err := client.SubmitFile(context.Background(), args[0], submitOptions)
@@ -94,4 +101,5 @@ func init() {
 	SubmitCmd.Flags().Bool("no-cache", false, "Submit file even if a result already exists")
 	SubmitCmd.Flags().StringSliceP("tag", "t", nil, "Tag list")
 	SubmitCmd.Flags().StringP("description", "d", "", "Description for the file")
+	SubmitCmd.Flags().StringP("password", "p", "", "Password used to extract archive")
 }
