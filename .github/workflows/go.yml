@@ -18,10 +18,9 @@ jobs:
         uses: actions/setup-go@v3
         with:
           go-version: 1.19
-      - name: Build
+      - name: build
         run: go build -v ./...
-
-      - name: Test
+      - name: test
         env:
           TESTCOVERAGE_TRESHOLD: 85
         run: |
@@ -33,4 +32,20 @@ jobs:
           else
             echo "Current test coverage too low"
             exit 1
+          fi
+      - uses: dominikh/staticcheck-action@v1.3.0
+        with:
+          version: "2023.1.6"
+      - name: gofumpt
+        env:
+          GOFUMPT_VERSION: v0.4.0
+        run: |
+          go install mvdan.cc/gofumpt@${GOFUMPT_VERSION}
+          RESULT=$(gofumpt -l .)
+          if [[ -n $RESULT ]]; then
+            echo "Following files must be re-formatted"
+            echo "$RESULT"
+            exit 1
+          else
+            echo "OK"
           fi
