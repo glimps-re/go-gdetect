@@ -51,8 +51,8 @@ func init() {
 	rootCmd.PersistentFlags().Bool("insecure", false, "bypass HTTPS check")
 
 	// Load env variables (API_URL and API_TOKEN)
-	var envApiToken = os.Getenv("API_TOKEN")
-	var envApiURL = os.Getenv("API_URL")
+	envApiToken := os.Getenv("API_TOKEN")
+	envApiURL := os.Getenv("API_URL")
 
 	// Create token and url flags
 	rootCmd.PersistentFlags().String("token", envApiToken, "token to API")

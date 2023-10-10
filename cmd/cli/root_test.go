@@ -10,7 +10,6 @@ import (
 )
 
 func TestExecute(t *testing.T) {
-
 	token := "abcdef01-23456789-abcdef01-23456789-abcdef01"
 
 	type fields struct {
