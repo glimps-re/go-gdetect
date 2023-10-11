@@ -934,6 +934,7 @@ func TestClient_GetProfileStatus(t *testing.T) {
 		setBadBody   bool
 		setErrorBody bool
 		setTimeout   bool
+		setNotFound  bool
 	}
 	tests := []struct {
 		name       string
@@ -988,6 +989,15 @@ func TestClient_GetProfileStatus(t *testing.T) {
 			timeout: 5 * time.Millisecond,
 			wantErr: true,
 		},
+		{
+			name: "ERROR FEATURE NOT AVAILABLE",
+			args: args{
+				ctx:         context.Background(),
+				setNotFound: true,
+			},
+			timeout: 5 * time.Millisecond,
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1000,6 +1010,10 @@ func TestClient_GetProfileStatus(t *testing.T) {
 						t.Errorf("handler.GetProfileStatus() %v error = unexpected METHOD: %v", tt.name, req.Method)
 					}
 					switch {
+					case req.URL.Path == "/api/versions":
+						rw.WriteHeader(http.StatusOK)
+						rw.Header().Add("Content-Type", "application/json")
+						rw.Write([]byte(`{"/api/expert/v2":"2.6.1","/api/lite/v1":"1.0.2","/api/lite/v2":"2.5.0"}`))
 					case tt.args.setTimeout:
 						time.Sleep(15 * time.Millisecond)
 						rw.WriteHeader(http.StatusOK)
@@ -1013,6 +1027,10 @@ func TestClient_GetProfileStatus(t *testing.T) {
 					case tt.args.setErrorBody:
 						rw.WriteHeader(http.StatusOK)
 						io.Copy(rw, io.NopCloser(ErrorReader{err: fmt.Errorf("test")}))
+					case tt.args.setNotFound:
+						rw.WriteHeader(http.StatusNotFound)
+						rw.Header().Add("Content-Type", "application/json")
+						rw.Write([]byte(`{"status":false,"error":"not found"}`))
 					default:
 						rw.WriteHeader(http.StatusOK)
 						rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
@@ -1039,6 +1057,131 @@ func TestClient_GetProfileStatus(t *testing.T) {
 			}
 			if !reflect.DeepEqual(gotResult, tt.wantResult) {
 				t.Errorf("Client.GetProfileStatus() got = %+v, want = %+v", gotResult, tt.wantResult)
+			}
+		})
+	}
+}
+
+func TestClient_GetAPIVersion(t *testing.T) {
+	type args struct {
+		ctx          context.Context
+		setBadStatus bool
+		setBadBody   bool
+		setErrorBody bool
+		setTimeout   bool
+		setNotFound  bool
+	}
+	tests := []struct {
+		name        string
+		wantVersion string
+		wantErr     bool
+		timeout     time.Duration
+		args        args
+	}{
+		{
+			name: "VALID",
+			args: args{
+				ctx: context.Background(),
+			},
+			wantErr:     false,
+			wantVersion: "2.5.0",
+		},
+		{
+			name: "ERROR HTTP STATUS",
+			args: args{
+				ctx:          context.Background(),
+				setBadStatus: true,
+			},
+			wantErr: true,
+		},
+		{
+			name: "ERROR INVALID BODY",
+			args: args{
+				ctx:        context.Background(),
+				setBadBody: true,
+			},
+			wantErr: true,
+		},
+		{
+			name: "ERROR READ BODY",
+			args: args{
+				ctx:          context.Background(),
+				setErrorBody: true,
+			},
+			wantErr: true,
+		},
+		{
+			name: "ERROR TIMEOUT",
+			args: args{
+				ctx:        context.Background(),
+				setTimeout: true,
+			},
+			timeout: 5 * time.Millisecond,
+			wantErr: true,
+		},
+		{
+			name: "ERROR NO VERSION FOUND",
+			args: args{
+				ctx:         context.Background(),
+				setNotFound: true,
+			},
+			timeout:     5 * time.Millisecond,
+			wantErr:     true,
+			wantVersion: "unknown",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(
+				http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+					if req.Method != "GET" {
+						t.Errorf("handler.GetAPIVersion() %v error = unexpected METHOD: %v", tt.name, req.Method)
+					}
+					switch {
+					case tt.args.setTimeout:
+						time.Sleep(15 * time.Millisecond)
+						rw.WriteHeader(http.StatusOK)
+						rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
+					case tt.args.setBadStatus:
+						rw.WriteHeader(http.StatusTeapot)
+						rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
+					case tt.args.setBadBody:
+						rw.WriteHeader(http.StatusOK)
+						rw.Write([]byte(`{"dai`))
+					case tt.args.setErrorBody:
+						rw.WriteHeader(http.StatusOK)
+						io.Copy(rw, io.NopCloser(ErrorReader{err: fmt.Errorf("test")}))
+					case tt.args.setNotFound:
+						rw.WriteHeader(http.StatusOK)
+						rw.Header().Add("Content-Type", "application/json")
+						rw.Write([]byte(`{"/api/expert/v2":"2.6.1","/api/lite/v1":"1.0.2"}`))
+					default:
+						rw.WriteHeader(http.StatusOK)
+						rw.Header().Add("Content-Type", "application/json")
+						rw.Write([]byte(`{"/api/expert/v2":"2.6.1","/api/lite/v1":"1.0.2","/api/lite/v2":"2.5.0"}`))
+					}
+				}),
+			)
+			defer s.Close()
+
+			client, err := NewClient(s.URL, token, false, nil)
+			if err != nil {
+				return
+			}
+
+			if tt.timeout != 0 {
+				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
+				defer cancel()
+				tt.args.ctx = ctx
+			}
+
+			gotResult, err := client.GetAPIVersion(tt.args.ctx)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Client.GetAPIVersion() error = %v, wantErr = %t", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(gotResult, tt.wantVersion) {
+				t.Errorf("Client.GetAPIVersion() got = %+v, want = %+v", gotResult, tt.wantVersion)
 			}
 		})
 	}

@@ -30,6 +30,14 @@ var (
 	ErrNoSID    = fmt.Errorf("no sid in result")
 )
 
+type FeatureNotAvailableError struct {
+	Version string
+}
+
+func (e FeatureNotAvailableError) Error() string {
+	return fmt.Sprintf("feature not available, API version: %s", e.Version)
+}
+
 type GDetectSubmitter interface {
 	GetResultByUUID(ctx context.Context, uuid string) (result Result, err error)
 	GetResultBySHA256(ctx context.Context, sha256 string) (result Result, err error)
@@ -39,6 +47,7 @@ type GDetectSubmitter interface {
 	WaitForFile(ctx context.Context, filepath string, options WaitForOptions) (result Result, err error)
 	WaitForReader(ctx context.Context, r io.Reader, options WaitForOptions) (result Result, err error)
 	GetProfileStatus(ctx context.Context) (status ProfileStatus, err error)
+	GetAPIVersion(ctx context.Context) (version string, err error)
 }
 
 var _ GDetectSubmitter = &Client{}
@@ -247,11 +256,11 @@ func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Resul
 		return
 	}
 
+	defer resp.Body.Close()
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		err = NewHTTPError(resp, string(rawBody))
@@ -280,11 +289,11 @@ func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result R
 		return
 	}
 
+	defer resp.Body.Close()
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		err = NewHTTPError(resp, string(rawBody))
@@ -400,11 +409,11 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 		return
 	}
 
+	defer resp.Body.Close()
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		err = NewHTTPError(resp, string(rawBody))
@@ -520,11 +529,11 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 		return
 	}
 
+	defer resp.Body.Close()
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		err = NewHTTPError(resp, string(rawBody))
@@ -551,13 +560,20 @@ func (c *Client) GetProfileStatus(ctx context.Context) (status ProfileStatus, er
 		return
 	}
 
+	defer resp.Body.Close()
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// do nothing
+	case http.StatusNotFound:
+		// the feature does not seems to be available
+		err = c.generateFeatureError(ctx)
+		return
+	default:
 		err = NewHTTPError(resp, string(rawBody))
 		return
 	}
@@ -569,4 +585,55 @@ func (c *Client) GetProfileStatus(ctx context.Context) (status ProfileStatus, er
 	}
 
 	return
+}
+
+// GetAPIVersion retrieves detect API version
+func (c *Client) GetAPIVersion(ctx context.Context) (version string, err error) {
+	request, err := c.prepareRequest(ctx, "GET", "/api/versions", nil)
+	if err != nil {
+		return
+	}
+
+	resp, err := c.HttpClient.Do(request)
+	if err != nil {
+		return
+	}
+
+	defer resp.Body.Close()
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		err = NewHTTPError(resp, string(rawBody))
+		return
+	}
+
+	response := map[string]string{}
+
+	err = json.Unmarshal(rawBody, &response)
+	if err != nil {
+		err = fmt.Errorf("error unmarshalling response json, %s", err)
+		return
+	}
+
+	if v, ok := response["/api/lite/v2"]; ok {
+		version = v
+		return
+	}
+
+	version = "unknown"
+	err = fmt.Errorf("could not find detect API version in the server response")
+	return
+}
+
+// generateFeatureError add the server API version in an FeatureNotAvailableError
+func (c *Client) generateFeatureError(ctx context.Context) (err error) {
+	e := FeatureNotAvailableError{}
+	e.Version, err = c.GetAPIVersion(ctx)
+	if err != nil {
+		return
+	}
+	return e
 }
