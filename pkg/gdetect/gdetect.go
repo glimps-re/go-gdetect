@@ -50,6 +50,21 @@ type GDetectSubmitter interface {
 	GetAPIVersion(ctx context.Context) (version string, err error)
 }
 
+type ExtendedGDetectSubmitter interface {
+	GetResultByUUID(ctx context.Context, uuid string) (result Result, err error)
+	GetResultBySHA256(ctx context.Context, sha256 string) (result Result, err error)
+	GetResults(ctx context.Context, from int, size int, tags ...string) (submissions []Submission, err error)
+	SubmitFile(ctx context.Context, filepath string, options SubmitOptions) (uuid string, err error)
+	SubmitReader(ctx context.Context, r io.Reader, options SubmitOptions) (uuid string, err error)
+	WaitForFile(ctx context.Context, filepath string, options WaitForOptions) (result Result, err error)
+	WaitForReader(ctx context.Context, r io.Reader, options WaitForOptions) (result Result, err error)
+	ExtractTokenViewURL(result *Result) (urlTokenView string, err error)
+	ExtractExpertViewURL(result *Result) (urlExpertView string, err error)
+	GetFullSubmissionByUUID(ctx context.Context, uuid string) (result interface{}, err error)
+	GetProfileStatus(ctx context.Context) (status ProfileStatus, err error)
+	GetAPIVersion(ctx context.Context) (version string, err error)
+}
+
 var _ GDetectSubmitter = &Client{}
 
 // Client is the representation of a Detect API CLient.
