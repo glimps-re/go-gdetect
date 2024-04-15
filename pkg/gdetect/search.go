@@ -54,7 +54,7 @@ func (c *Client) GetResults(ctx context.Context, from int, size int, tags ...str
 	var results results
 	err = json.Unmarshal(rawBody, &results)
 	if err != nil {
-		err = fmt.Errorf("error unmarshaling response json, %s", err)
+		err = fmt.Errorf("error unmarshaling response json, %w", err)
 		return
 	}
 	submissions = append(submissions, results.Submissions...)

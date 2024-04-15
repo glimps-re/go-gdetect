@@ -186,7 +186,7 @@ type ProfileStatus struct {
 	EstimatedAnalysisDuration int `json:"estimated_analysis_duration"`
 }
 
-// Default timeout for gdetect client
+// DefaultTimeout is the default timeout for gdetect client
 var DefaultTimeout = time.Minute * 5
 
 // NewClient returns a fresh client, given endpoint token and insecure params.
@@ -286,7 +286,7 @@ func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Resul
 
 	err = json.Unmarshal(rawBody, &result)
 	if err != nil {
-		err = fmt.Errorf("error unmarshalling response json, %s", err)
+		err = fmt.Errorf("error unmarshalling response json, %w", err)
 		return
 	}
 
@@ -319,7 +319,7 @@ func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result R
 
 	err = json.Unmarshal(rawBody, &result)
 	if err != nil {
-		err = fmt.Errorf("error unmarshalling response json, %s", err)
+		err = fmt.Errorf("error unmarshalling response json, %w", err)
 		return
 	}
 
@@ -430,7 +430,7 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 
 	err = json.Unmarshal(rawBody, &response)
 	if err != nil {
-		err = fmt.Errorf("error unmarshalling response json, %s", err)
+		err = fmt.Errorf("error unmarshalling response json, %w", err)
 		return
 	}
 
@@ -563,7 +563,7 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 
 	err = json.Unmarshal(rawBody, &result)
 	if err != nil {
-		err = fmt.Errorf("error unmarshalling response json, %s", err)
+		err = fmt.Errorf("error unmarshalling response json, %w", err)
 		return
 	}
 
@@ -601,7 +601,7 @@ func (c *Client) GetProfileStatus(ctx context.Context) (status ProfileStatus, er
 
 	err = json.Unmarshal(rawBody, &status)
 	if err != nil {
-		err = fmt.Errorf("error unmarshaling response json, %s", err)
+		err = fmt.Errorf("error unmarshaling response json, %w", err)
 		return
 	}
 
@@ -635,7 +635,7 @@ func (c *Client) GetAPIVersion(ctx context.Context) (version string, err error) 
 
 	err = json.Unmarshal(rawBody, &response)
 	if err != nil {
-		err = fmt.Errorf("error unmarshalling response json, %s", err)
+		err = fmt.Errorf("error unmarshalling response json, %w", err)
 		return
 	}
 

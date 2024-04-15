@@ -51,20 +51,20 @@ func init() {
 	rootCmd.PersistentFlags().Bool("insecure", false, "bypass HTTPS check")
 
 	// Load env variables (API_URL and API_TOKEN)
-	envApiToken := os.Getenv("API_TOKEN")
-	envApiURL := os.Getenv("API_URL")
+	envAPIToken := os.Getenv("API_TOKEN")
+	envAPIURL := os.Getenv("API_URL")
 
 	// Create token and url flags
-	rootCmd.PersistentFlags().String("token", envApiToken, "token to API")
-	rootCmd.PersistentFlags().String("url", envApiURL, "url to API")
+	rootCmd.PersistentFlags().String("token", envAPIToken, "token to API")
+	rootCmd.PersistentFlags().String("url", envAPIURL, "url to API")
 
 	// If token is not set as an env variable it should be specified as an argument
-	if envApiToken == "" {
+	if envAPIToken == "" {
 		rootCmd.MarkPersistentFlagRequired("token")
 	}
 
 	// If url is not set as an env variable it should be specified as an argument
-	if envApiURL == "" {
+	if envAPIURL == "" {
 		rootCmd.MarkPersistentFlagRequired("url")
 	}
 }

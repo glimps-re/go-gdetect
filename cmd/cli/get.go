@@ -9,8 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// # GetCmd
-//
 // GetCmd is a CLI sub command to get an analysis giving its UUID.
 // It prints out analysis' result.
 //
