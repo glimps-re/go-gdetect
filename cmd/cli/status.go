@@ -9,8 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// # StatusCmd
-//
 // StatusCmd is a CLI sub command to get profile status.
 // It print out profile status.
 //

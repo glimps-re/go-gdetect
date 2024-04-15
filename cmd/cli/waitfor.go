@@ -10,8 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// # WaitForCmd
-//
 // WaitForCmd is a CLI sub command to submit a file for analysis to Detect API.
 // It print out analysis' result.
 //
@@ -121,14 +119,14 @@ URL to token view and expert analysis view.`,
 		if retrieveURL {
 			expertURL, errExpertURL := client.ExtractExpertViewURL(&result)
 			if errExpertURL != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Error extracting expert view url: %s\n", errExpertURL)
+				fmt.Fprintf(cmd.ErrOrStderr(), "Error extracting expert view url: %v\n", errExpertURL)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "Expert view url: %s\n", expertURL)
 			}
 
 			tokenViewURL, errTokenViewURL := client.ExtractTokenViewURL(&result)
 			if errTokenViewURL != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Error extracting token view url: %s\n", errTokenViewURL)
+				fmt.Fprintf(cmd.ErrOrStderr(), "Error extracting token view url: %v\n", errTokenViewURL)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "Token view url: %s\n", tokenViewURL)
 			}

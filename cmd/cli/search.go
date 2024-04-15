@@ -9,8 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// # SearchCmd
-//
 // SearchCmd is a CLI sub command to search for an analysis giving a file's SHA256.
 // It print out analysis' result.
 //
@@ -75,14 +73,14 @@ analysis view.`,
 		if retrieveURL {
 			expertURL, errExpertViewURL := client.ExtractExpertViewURL(&result)
 			if errExpertViewURL != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Error extracting expert view url: %s\n", errExpertViewURL)
+				fmt.Fprintf(cmd.ErrOrStderr(), "Error extracting expert view url: %v\n", errExpertViewURL)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "Expert view url: %s\n", expertURL)
 			}
 
 			tokenViewURL, errTokenViewURL := client.ExtractTokenViewURL(&result)
 			if errTokenViewURL != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Error extracting token view url: %s\n", errTokenViewURL)
+				fmt.Fprintf(cmd.ErrOrStderr(), "Error extracting token view url: %v\n", errTokenViewURL)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "Token view url: %s\n", tokenViewURL)
 			}

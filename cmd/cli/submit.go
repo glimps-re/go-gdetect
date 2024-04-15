@@ -8,8 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// # SubmitCmd
-//
 // SubmitCmd is a CLI sub command to submit a file for analysis to Detect API.
 // It print out analysis' UUID.
 //

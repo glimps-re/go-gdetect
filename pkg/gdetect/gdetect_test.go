@@ -141,7 +141,7 @@ func TestClient_SubmitFile(t *testing.T) {
 		name     string
 		args     args
 		timeout  time.Duration
-		wantUuid string
+		wantUUID string
 		wantErr  bool
 	}{
 		{
@@ -152,7 +152,7 @@ func TestClient_SubmitFile(t *testing.T) {
 				description: "valid test",
 			},
 			wantErr:  false,
-			wantUuid: "1234",
+			wantUUID: "1234",
 		},
 		{
 			name: "VALID WITH FILENAME",
@@ -163,7 +163,7 @@ func TestClient_SubmitFile(t *testing.T) {
 				filename:    "test.exe",
 			},
 			wantErr:  false,
-			wantUuid: "1234",
+			wantUUID: "1234",
 		},
 		{
 			name: "INVALID FILE",
@@ -193,7 +193,7 @@ func TestClient_SubmitFile(t *testing.T) {
 				archive_password: "test",
 			},
 			wantErr:  false,
-			wantUuid: "12345",
+			wantUUID: "12345",
 		},
 		{
 			name: "SUBMISSION STATUS FALSE",
@@ -212,7 +212,7 @@ func TestClient_SubmitFile(t *testing.T) {
 				description: "bad json",
 			},
 			wantErr:  true,
-			wantUuid: "",
+			wantUUID: "",
 		},
 		{
 			name: "TIMEOUT",
@@ -275,7 +275,7 @@ func TestClient_SubmitFile(t *testing.T) {
 						if err != nil {
 							return
 						}
-						if string(data) != "test content" {
+						if data != "test content" {
 							return
 						}
 						rw.Write([]byte(`{"status": true, "uuid": "12345"}`))
@@ -306,14 +306,14 @@ func TestClient_SubmitFile(t *testing.T) {
 				ArchivePassword: tt.args.archive_password,
 			}
 
-			gotUuid, err := client.SubmitFile(tt.args.ctx, tt.args.filepath, submitOptions)
+			gotUUID, err := client.SubmitFile(tt.args.ctx, tt.args.filepath, submitOptions)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.SubmitFile() error = %v, wantErr = %t", err, tt.wantErr)
 				return
 			}
-			if gotUuid != tt.wantUuid {
-				t.Errorf("Client.SubmitFile() = %v, want %v", gotUuid, tt.wantUuid)
+			if gotUUID != tt.wantUUID {
+				t.Errorf("Client.SubmitFile() = %v, want %v", gotUUID, tt.wantUUID)
 			}
 		})
 	}
@@ -798,7 +798,7 @@ func TestClient_ExtractExpertViewURL(t *testing.T) {
 	}
 }
 
-func Example_ClientSubmitFile() {
+func ExampleClient_SubmitFile() {
 	// example mock up
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
