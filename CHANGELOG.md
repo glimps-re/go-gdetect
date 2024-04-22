@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.2.2] - 2024-04-22
+
+### Added
+
+* [pkg] Add special status to result
+
 ## [v1.2.1] - 2024-04-15
 
 ### Added
