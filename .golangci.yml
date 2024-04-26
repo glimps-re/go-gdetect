@@ -1,6 +1,6 @@
 run:
   concurrency: 0
-  go: "1.22"
+  go: "1.21"
   # timeout for analysis, e.g. 30s, 5m, default is 1m
   build-tags:
   - integ
