@@ -191,6 +191,10 @@ type ProfileStatus struct {
 // DefaultTimeout is the default timeout for gdetect client
 var DefaultTimeout = time.Minute * 5
 
+var _ GDetectSubmitter = &Client{}
+
+var _ ExtendedGDetectSubmitter = &Client{}
+
 // NewClient returns a fresh client, given endpoint token and insecure params.
 // The returned client could be used to perform operations on gdetect.
 //

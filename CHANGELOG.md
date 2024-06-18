@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.2.3] - 2024-06-18
+
+### Fixed
+
+* [mock] Add GetFullSubmissionByUUID to extended gdetect submitter mock
+
 ## [v1.2.2] - 2024-04-22
 
 ### Added

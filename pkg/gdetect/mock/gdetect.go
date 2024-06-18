@@ -7,6 +7,10 @@ import (
 	"github.com/glimps-re/go-gdetect/pkg/gdetect"
 )
 
+var _ gdetect.GDetectSubmitter = &MockGDetectSubmitter{}
+
+var _ gdetect.ExtendedGDetectSubmitter = &MockExtendedGDetectSubmitter{}
+
 type MockGDetectSubmitter struct {
 	GetResultByUUIDMock   func(ctx context.Context, uuid string) (result gdetect.Result, err error)
 	GetResultBySHA256Mock func(ctx context.Context, sha256 string) (result gdetect.Result, err error)
@@ -83,17 +87,18 @@ func (m *MockGDetectSubmitter) GetAPIVersion(ctx context.Context) (version strin
 }
 
 type MockExtendedGDetectSubmitter struct {
-	GetResultByUUIDMock      func(ctx context.Context, uuid string) (result gdetect.Result, err error)
-	GetResultBySHA256Mock    func(ctx context.Context, sha256 string) (result gdetect.Result, err error)
-	GetResultsMock           func(ctx context.Context, from int, size int, tags ...string) (submissions []gdetect.Submission, err error)
-	SubmitFileMock           func(ctx context.Context, filepath string, options gdetect.SubmitOptions) (uuid string, err error)
-	SubmitReaderMock         func(ctx context.Context, r io.Reader, options gdetect.SubmitOptions) (uuid string, err error)
-	WaitForFileMock          func(ctx context.Context, filepath string, options gdetect.WaitForOptions) (result gdetect.Result, err error)
-	WaitForReaderMock        func(ctx context.Context, r io.Reader, options gdetect.WaitForOptions) (result gdetect.Result, err error)
-	ExtractTokenViewURLMock  func(result *gdetect.Result) (urlTokenView string, err error)
-	ExtractExpertViewURLMock func(result *gdetect.Result) (urlExpertView string, err error)
-	GetProfileStatusMock     func(ctx context.Context) (status gdetect.ProfileStatus, err error)
-	GetAPIVersionMock        func(ctx context.Context) (version string, err error)
+	GetResultByUUIDMock         func(ctx context.Context, uuid string) (result gdetect.Result, err error)
+	GetResultBySHA256Mock       func(ctx context.Context, sha256 string) (result gdetect.Result, err error)
+	GetResultsMock              func(ctx context.Context, from int, size int, tags ...string) (submissions []gdetect.Submission, err error)
+	SubmitFileMock              func(ctx context.Context, filepath string, options gdetect.SubmitOptions) (uuid string, err error)
+	SubmitReaderMock            func(ctx context.Context, r io.Reader, options gdetect.SubmitOptions) (uuid string, err error)
+	WaitForFileMock             func(ctx context.Context, filepath string, options gdetect.WaitForOptions) (result gdetect.Result, err error)
+	WaitForReaderMock           func(ctx context.Context, r io.Reader, options gdetect.WaitForOptions) (result gdetect.Result, err error)
+	ExtractTokenViewURLMock     func(result *gdetect.Result) (urlTokenView string, err error)
+	ExtractExpertViewURLMock    func(result *gdetect.Result) (urlExpertView string, err error)
+	GetFullSubmissionByUUIDMock func(ctx context.Context, uuid string) (result interface{}, err error)
+	GetProfileStatusMock        func(ctx context.Context) (status gdetect.ProfileStatus, err error)
+	GetAPIVersionMock           func(ctx context.Context) (version string, err error)
 }
 
 func (m *MockExtendedGDetectSubmitter) GetResultByUUID(ctx context.Context, uuid string) (result gdetect.Result, err error) {
@@ -164,6 +169,13 @@ func (m *MockExtendedGDetectSubmitter) GetProfileStatus(ctx context.Context) (st
 		return m.GetProfileStatusMock(ctx)
 	}
 	panic("GetProfileStatus not implemented in current test")
+}
+
+func (m *MockExtendedGDetectSubmitter) GetFullSubmissionByUUID(ctx context.Context, uuid string) (result interface{}, err error) {
+	if m.GetFullSubmissionByUUIDMock != nil {
+		return m.GetFullSubmissionByUUIDMock(ctx, uuid)
+	}
+	panic("GetFullSubmissionByUUID not implemented in current test")
 }
 
 func (m *MockExtendedGDetectSubmitter) GetAPIVersion(ctx context.Context) (version string, err error) {
