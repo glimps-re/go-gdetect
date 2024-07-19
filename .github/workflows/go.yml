@@ -22,12 +22,12 @@ jobs:
         run: go build -v ./...
       - name: test
         env:
-          TESTCOVERAGE_TRESHOLD: 70
+          TESTCOVERAGE_THRESHOLD: 70
         run: |
           go test -v ./... -covermode=count -coverprofile=coverage.out
           go tool cover -func=coverage.out -o=coverage.out
           totalCoverage=`cat coverage.out | grep 'total' | grep -Eo '[0-9\.]+'`
-          if (( $(echo "$totalCoverage $TESTCOVERAGE_TRESHOLD" |awk '{print ($1 > $2)}') )); then 
+          if (( $(echo "$totalCoverage $TESTCOVERAGE_THRESHOLD" |awk '{print ($1 > $2)}') )); then 
             echo "OK"
           else
             echo "Current test coverage too low: $totalCoverage"

@@ -191,6 +191,8 @@ type ProfileStatus struct {
 	// EstimatedAnalysisDuration is an estimated duration for the next analysis in milliseconds
 	// It's an optimistic estimation based on the average analysis time and the analysis queue
 	EstimatedAnalysisDuration int `json:"estimated_analysis_duration"`
+	// Malware threshold is the threshold at which a file is considered malicious
+	MalwareThreshold int `json:"malware_threshold"`
 }
 
 // DefaultTimeout is the default timeout for gdetect client
