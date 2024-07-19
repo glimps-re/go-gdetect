@@ -1098,6 +1098,7 @@ func TestClient_GetProfileStatus(t *testing.T) {
 			},
 			wantErr: false,
 			wantResult: ProfileStatus{
+				MalwareThreshold:          1000,
 				DailyQuota:                1000,
 				AvailableDailyQuota:       997,
 				Cache:                     true,
@@ -1191,7 +1192,7 @@ func TestClient_GetProfileStatus(t *testing.T) {
 						rw.Write([]byte(`{"status":false,"error":"not found"}`))
 					default:
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
+						rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`))
 					}
 				}),
 			)
