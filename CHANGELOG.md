@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.3.0] - 2024-10-08
+
+### Added
+
+* [cli/pkg] Add syndetect support
+
 ## [v1.2.2] - 2024-04-22
 
 ### Added

@@ -1,7 +1,7 @@
 // Package gdetect provides implements utility functions to interact with GLIMPS'
 // detect API.
 //
-// The gdetect package should only be used to intercat with detect API.
+// The gdetect package should only be used to interact with detect API.
 // Package path implements utility routines for manipulating slash-separated
 // paths.
 package gdetect
@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -24,11 +25,14 @@ import (
 
 // Generic gdetect client errors.
 var (
-	ErrTimeout  = fmt.Errorf("timeout")
-	ErrBadToken = fmt.Errorf("bad token")
-	ErrNoToken  = fmt.Errorf("no token in result")
-	ErrNoSID    = fmt.Errorf("no sid in result")
+	ErrTimeout      = fmt.Errorf("timeout")
+	ErrBadToken     = fmt.Errorf("bad token")
+	ErrNoToken      = fmt.Errorf("no token in result")
+	ErrNoSID        = fmt.Errorf("no sid in result")
+	ErrNotAvailable = fmt.Errorf("this feature is not available")
 )
+
+var Logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 type FeatureNotAvailableError struct {
 	Version string
@@ -72,6 +76,7 @@ type Client struct {
 	Endpoint   string
 	Token      string
 	HttpClient *http.Client
+	syndetect  bool
 }
 
 // Result represent typical json result from Detect API operations like get or
@@ -226,6 +231,11 @@ func checkToken(token string) (err error) {
 	return
 }
 
+func (c *Client) SetSyndetect() {
+	c.syndetect = true
+	Logger.Warn("syndetect is a limited version of detect API, some analysis information won't be accessible.")
+}
+
 func (c *Client) prepareRequest(ctx context.Context, method string, path string, body io.Reader) (request *http.Request, err error) {
 	var u url.URL
 
@@ -262,10 +272,35 @@ func NewHTTPError(r *http.Response, body string) HTTPError {
 	}
 }
 
+var (
+	DetectPaths = map[string]string{
+		"results": "/api/lite/v2/results/",
+		"search":  "/api/lite/v2/search/",
+		"submit":  "/api/lite/v2/submit",
+	}
+	SyndetectPaths = map[string]string{
+		"results": "/api/v1/results/",
+		"search":  "/api/v1/results/",
+		"submit":  "/api/v1/submit",
+	}
+)
+
+func (c *Client) getPath(path string) string {
+	if c.syndetect {
+		if v, ok := SyndetectPaths[path]; ok {
+			return v
+		}
+	}
+	if v, ok := DetectPaths[path]; ok {
+		return v
+	}
+	panic("path not found")
+}
+
 // GetResultByUUID retrieves result using results endpoint on Detect API with
 // given UUID.
 func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Result, err error) {
-	request, err := c.prepareRequest(ctx, "GET", "/api/lite/v2/results/"+uuid, nil)
+	request, err := c.prepareRequest(ctx, "GET", c.getPath("results")+uuid, nil)
 	if err != nil {
 		return
 	}
@@ -287,9 +322,18 @@ func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Resul
 	}
 
 	err = json.Unmarshal(rawBody, &result)
-	if err != nil {
+	switch {
+	case err == nil:
+		// not error
+	case c.syndetect && err.Error() == "json: cannot unmarshal number into Go struct field Result.files of type []gdetect.FileResult":
+		// with syndetect files if the number of files
+		err = nil
+	default:
 		err = fmt.Errorf("error unmarshalling response json, %w", err)
 		return
+	}
+	if c.syndetect {
+		result.UUID = uuid
 	}
 
 	return
@@ -298,7 +342,7 @@ func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Resul
 // GetResultBySHA256 search for an analysis using search endpoint on Detect API with
 // given file SHA256.
 func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result Result, err error) {
-	request, err := c.prepareRequest(ctx, "GET", "/api/lite/v2/search/"+sha256, nil)
+	request, err := c.prepareRequest(ctx, "GET", c.getPath("search")+sha256, nil)
 	if err != nil {
 		return
 	}
@@ -350,6 +394,7 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 	type responseT struct {
 		Status bool   `json:"status"`
 		UUID   string `json:"uuid,omitempty"`
+		ID     string `json:"id,omitempty"`
 		Error  string `json:"error,omitempty"`
 	}
 
@@ -408,7 +453,7 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 	writer.Close()
 
 	// Post file to API
-	request, err := c.prepareRequest(ctx, "POST", "/api/lite/v2/submit", body)
+	request, err := c.prepareRequest(ctx, "POST", c.getPath("submit"), body)
 	if err != nil {
 		return
 	}
@@ -441,6 +486,9 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 		return
 	}
 	uuid = response.UUID
+	if c.syndetect {
+		uuid = response.ID
+	}
 	return
 }
 
@@ -542,6 +590,9 @@ func (c *Client) ExtractExpertViewURL(result *Result) (urlExpertView string, err
 // GetFullSubmissionByUUID retrieves full submission using results full endpoint
 // on Detect API with given UUID.
 func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (result interface{}, err error) {
+	if c.syndetect {
+		return nil, ErrNotAvailable
+	}
 	request, err := c.prepareRequest(ctx, "GET", "/api/lite/v2/results/"+uuid+"/full", nil)
 	if err != nil {
 		return
@@ -573,6 +624,9 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 }
 
 func (c *Client) GetProfileStatus(ctx context.Context) (status ProfileStatus, err error) {
+	if c.syndetect {
+		return status, ErrNotAvailable
+	}
 	request, err := c.prepareRequest(ctx, "GET", "/api/lite/v2/status", nil)
 	if err != nil {
 		return

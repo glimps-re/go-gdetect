@@ -50,6 +50,9 @@ func init() {
 	// Flag to bypass HTTPS check, should be false except in case of testing
 	rootCmd.PersistentFlags().Bool("insecure", false, "bypass HTTPS check")
 
+	// Flag to use syndetect instead of detect API
+	rootCmd.PersistentFlags().Bool("syndetect", false, "use syndetect API (warning: it's subset of detect capabilities)")
+
 	// Load env variables (API_URL and API_TOKEN)
 	envAPIToken := os.Getenv("API_TOKEN")
 	envAPIURL := os.Getenv("API_URL")

@@ -272,9 +272,6 @@ func TestClient_SubmitFile(t *testing.T) {
 							return
 						}
 						data := buf.String()
-						if err != nil {
-							return
-						}
 						if data != "test content" {
 							return
 						}
@@ -668,6 +665,121 @@ func TestClient_WaitForFile(t *testing.T) {
 	}
 }
 
+func TestClient_WaitForFile_Syndetect(t *testing.T) {
+	type args struct {
+		ctx         context.Context
+		filepath    string
+		tags        []string
+		description string
+		bypassCache bool
+		timeout     time.Duration
+		params      []int
+		pullTime    time.Duration
+	}
+	tests := []struct {
+		name       string
+		args       args
+		wantResult Result
+		wantErr    bool
+		timeout    time.Duration
+	}{
+		{
+			name: "VALID",
+			args: args{
+				ctx:      context.Background(),
+				filepath: "../../tests/samples/false_mirai",
+				params:   []int{1},
+				timeout:  180 * time.Second,
+				pullTime: 15 * time.Millisecond,
+			},
+			wantResult: Result{UUID: "1234", Done: true},
+			wantErr:    false,
+		},
+		{
+			name: "TIMEOUT",
+			args: args{
+				ctx:      context.Background(),
+				filepath: "../../tests/samples/false_cryptolocker",
+				params:   []int{1},
+				timeout:  time.Millisecond * 15,
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(
+				http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+					if req.Header.Get("X-Auth-Token") != token {
+						t.Errorf("handler.WaitForFile() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
+					}
+					switch strings.TrimSpace(req.URL.Path) {
+					case "/api/v1/submit":
+						if req.Method != "POST" {
+							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
+						}
+						if err := req.ParseMultipartForm(4096); err != nil {
+							http.NotFoundHandler().ServeHTTP(rw, req)
+							return
+						}
+						_, h, err := req.FormFile("file")
+						if err != nil {
+							return
+						}
+						switch h.Filename {
+						case "false_mirai":
+							rw.Write([]byte(`{"id":"1234", "status": true}`))
+						case "false_cryptolocker":
+							rw.Write([]byte(`{"id":"1234_never_done", "status": true}`))
+						}
+					case "/api/v1/results/1234":
+						if req.Method != "GET" {
+							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
+						}
+						rw.Write([]byte(`{"id":"1234", "status": true, "done": true}`))
+					case "/api/v1/results/1234_never_done":
+						if req.Method != "GET" {
+							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
+						}
+						rw.Write([]byte(`{"id":"1234", "status": true, "done": false}`))
+					default:
+						t.Errorf("handler.WaitForFile() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
+					}
+				}),
+			)
+			defer s.Close()
+
+			client, err := NewClient(s.URL, token, false, nil)
+			if err != nil {
+				return
+			}
+			client.SetSyndetect()
+			if tt.timeout != 0 {
+				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
+				defer cancel()
+				tt.args.ctx = ctx
+			}
+
+			waitForOptions := WaitForOptions{
+				Tags:        tt.args.tags,
+				Description: tt.args.description,
+				BypassCache: tt.args.bypassCache,
+				Timeout:     tt.args.timeout,
+				PullTime:    tt.args.pullTime,
+			}
+
+			gotResult, err := client.WaitForFile(tt.args.ctx, tt.args.filepath, waitForOptions)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Client.WaitForFile() error = %v, wantErr = %t", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(gotResult, tt.wantResult) {
+				t.Errorf("Client.WaitForFile() = %+v, want %+v", gotResult, tt.wantResult)
+			}
+		})
+	}
+}
+
 func TestClient_ExtractTokenViewURL(t *testing.T) {
 	type fields struct {
 		Endpoint string
@@ -828,17 +940,32 @@ func ExampleClient_SubmitFile() {
 }
 
 func TestClient_GetFullSubmissionByUUID(t *testing.T) {
+	type fields struct {
+		setSyndetect bool
+	}
 	type args struct {
 		ctx  context.Context
 		uuid string
 	}
 	tests := []struct {
 		name       string
+		fields     fields
 		args       args
 		wantResult interface{}
 		wantErr    bool
 		timeout    time.Duration
 	}{
+		{
+			name: "ERROR SYNDETECT",
+			fields: fields{
+				setSyndetect: true,
+			},
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_syndetect",
+			},
+			wantErr: true,
+		},
 		{
 			name: "TIMEOUT",
 			args: args{
@@ -912,6 +1039,10 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 				return
 			}
 
+			if tt.fields.setSyndetect {
+				client.SetSyndetect()
+			}
+
 			if tt.timeout != 0 {
 				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
 				defer cancel()
@@ -931,13 +1062,16 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 }
 
 func TestClient_GetProfileStatus(t *testing.T) {
+	type fields struct {
+		setSyndetectClient bool
+		setBadStatus       bool
+		setBadBody         bool
+		setErrorBody       bool
+		setTimeout         bool
+		setNotFound        bool
+	}
 	type args struct {
-		ctx          context.Context
-		setBadStatus bool
-		setBadBody   bool
-		setErrorBody bool
-		setTimeout   bool
-		setNotFound  bool
+		ctx context.Context
 	}
 	tests := []struct {
 		name       string
@@ -945,7 +1079,18 @@ func TestClient_GetProfileStatus(t *testing.T) {
 		wantErr    bool
 		timeout    time.Duration
 		args       args
+		fields     fields
 	}{
+		{
+			name: "ERROR SYNDETECT",
+			args: args{
+				ctx: context.Background(),
+			},
+			fields: fields{
+				setSyndetectClient: true,
+			},
+			wantErr: true,
+		},
 		{
 			name: "VALID",
 			args: args{
@@ -962,7 +1107,9 @@ func TestClient_GetProfileStatus(t *testing.T) {
 		{
 			name: "ERROR HTTP STATUS",
 			args: args{
-				ctx:          context.Background(),
+				ctx: context.Background(),
+			},
+			fields: fields{
 				setBadStatus: true,
 			},
 			wantErr: true,
@@ -970,7 +1117,9 @@ func TestClient_GetProfileStatus(t *testing.T) {
 		{
 			name: "ERROR INVALID BODY",
 			args: args{
-				ctx:        context.Background(),
+				ctx: context.Background(),
+			},
+			fields: fields{
 				setBadBody: true,
 			},
 			wantErr: true,
@@ -978,7 +1127,9 @@ func TestClient_GetProfileStatus(t *testing.T) {
 		{
 			name: "ERROR READ BODY",
 			args: args{
-				ctx:          context.Background(),
+				ctx: context.Background(),
+			},
+			fields: fields{
 				setErrorBody: true,
 			},
 			wantErr: true,
@@ -986,7 +1137,9 @@ func TestClient_GetProfileStatus(t *testing.T) {
 		{
 			name: "ERROR TIMEOUT",
 			args: args{
-				ctx:        context.Background(),
+				ctx: context.Background(),
+			},
+			fields: fields{
 				setTimeout: true,
 			},
 			timeout: 5 * time.Millisecond,
@@ -995,7 +1148,9 @@ func TestClient_GetProfileStatus(t *testing.T) {
 		{
 			name: "ERROR FEATURE NOT AVAILABLE",
 			args: args{
-				ctx:         context.Background(),
+				ctx: context.Background(),
+			},
+			fields: fields{
 				setNotFound: true,
 			},
 			timeout: 5 * time.Millisecond,
@@ -1017,20 +1172,20 @@ func TestClient_GetProfileStatus(t *testing.T) {
 						rw.WriteHeader(http.StatusOK)
 						rw.Header().Add("Content-Type", "application/json")
 						rw.Write([]byte(`{"/api/expert/v2":"2.6.1","/api/lite/v1":"1.0.2","/api/lite/v2":"2.5.0"}`))
-					case tt.args.setTimeout:
+					case tt.fields.setTimeout:
 						time.Sleep(15 * time.Millisecond)
 						rw.WriteHeader(http.StatusOK)
 						rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
-					case tt.args.setBadStatus:
+					case tt.fields.setBadStatus:
 						rw.WriteHeader(http.StatusTeapot)
 						rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
-					case tt.args.setBadBody:
+					case tt.fields.setBadBody:
 						rw.WriteHeader(http.StatusOK)
 						rw.Write([]byte(`{"dai`))
-					case tt.args.setErrorBody:
+					case tt.fields.setErrorBody:
 						rw.WriteHeader(http.StatusOK)
 						io.Copy(rw, io.NopCloser(ErrorReader{err: fmt.Errorf("test")}))
-					case tt.args.setNotFound:
+					case tt.fields.setNotFound:
 						rw.WriteHeader(http.StatusNotFound)
 						rw.Header().Add("Content-Type", "application/json")
 						rw.Write([]byte(`{"status":false,"error":"not found"}`))
@@ -1045,6 +1200,9 @@ func TestClient_GetProfileStatus(t *testing.T) {
 			client, err := NewClient(s.URL, token, false, nil)
 			if err != nil {
 				return
+			}
+			if tt.fields.setSyndetectClient {
+				client.SetSyndetect()
 			}
 
 			if tt.timeout != 0 {

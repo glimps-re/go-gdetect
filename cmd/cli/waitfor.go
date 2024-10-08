@@ -86,6 +86,14 @@ URL to token view and expert analysis view.`,
 			return
 		}
 
+		syndetect, err := cmd.Flags().GetBool("syndetect")
+		if err != nil {
+			return
+		}
+		if syndetect {
+			client.SetSyndetect()
+		}
+
 		password, err := cmd.Flags().GetString("password")
 		if err != nil {
 			return

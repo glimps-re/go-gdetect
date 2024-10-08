@@ -75,6 +75,14 @@ analysis UUID and print it out.`,
 			return
 		}
 
+		syndetect, err := cmd.Flags().GetBool("syndetect")
+		if err != nil {
+			return
+		}
+		if syndetect {
+			client.SetSyndetect()
+		}
+
 		submitOptions := gdetect.SubmitOptions{
 			Description:     description,
 			Tags:            tags,
