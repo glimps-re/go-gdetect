@@ -51,6 +51,14 @@ var StatusCmd = &cobra.Command{
 			return
 		}
 
+		syndetect, err := cmd.Flags().GetBool("syndetect")
+		if err != nil {
+			return
+		}
+		if syndetect {
+			client.SetSyndetect()
+		}
+
 		result, err := client.GetProfileStatus(context.Background())
 		if err != nil {
 			return

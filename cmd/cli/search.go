@@ -54,6 +54,14 @@ analysis view.`,
 			return
 		}
 
+		syndetect, err := cmd.Flags().GetBool("syndetect")
+		if err != nil {
+			return
+		}
+		if syndetect {
+			client.SetSyndetect()
+		}
+
 		result, err := client.GetResultBySHA256(context.Background(), args[0])
 		if err != nil {
 			return

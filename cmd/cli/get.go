@@ -53,6 +53,14 @@ and eventually URL to access Token view and Expert analysis view.`,
 			return
 		}
 
+		syndetect, err := cmd.Flags().GetBool("syndetect")
+		if err != nil {
+			return
+		}
+		if syndetect {
+			client.SetSyndetect()
+		}
+
 		result, err := client.GetResultByUUID(context.Background(), args[0])
 		if err != nil {
 			return
