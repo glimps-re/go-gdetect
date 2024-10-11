@@ -5,6 +5,7 @@
 ### Added
 
 * [pkg] Add malware threshold to get status result
+* [pkg] Add WaitForUUID method
 
 ## [v1.3.0] - 2024-10-08
 

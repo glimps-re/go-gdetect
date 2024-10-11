@@ -545,7 +545,7 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 				return
 			}
 			if !reflect.DeepEqual(gotResult, tt.wantResult) {
-				t.Errorf("Client.GetUUIDResult() = %+v, want %+v", gotResult, tt.wantResult)
+				t.Errorf("Client.GetResultBySHA256() = %+v, want %+v", gotResult, tt.wantResult)
 			}
 		})
 	}
