@@ -545,7 +545,7 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 				return
 			}
 			if !reflect.DeepEqual(gotResult, tt.wantResult) {
-				t.Errorf("Client.GetUUIDResult() = %+v, want %+v", gotResult, tt.wantResult)
+				t.Errorf("Client.GetResultBySHA256() = %+v, want %+v", gotResult, tt.wantResult)
 			}
 		})
 	}
@@ -561,6 +561,7 @@ func TestClient_WaitForFile(t *testing.T) {
 		timeout     time.Duration
 		params      []int
 		pullTime    time.Duration
+		preGet      bool
 	}
 	tests := []struct {
 		name       string
@@ -577,6 +578,32 @@ func TestClient_WaitForFile(t *testing.T) {
 				params:   []int{1},
 				timeout:  180 * time.Second,
 				pullTime: 15 * time.Millisecond,
+			},
+			wantResult: Result{UUID: "1234", Done: true},
+			wantErr:    false,
+		},
+		{
+			name: "VALID WITH PREGET",
+			args: args{
+				ctx:      context.Background(),
+				filepath: "../../tests/samples/false_cryptolocker",
+				params:   []int{1},
+				timeout:  180 * time.Second,
+				pullTime: 15 * time.Millisecond,
+				preGet:   true,
+			},
+			wantResult: Result{UUID: "1234_waiting_one_polling", Done: true},
+			wantErr:    false,
+		},
+		{
+			name: "VALID PREGET NOT FOUND",
+			args: args{
+				ctx:      context.Background(),
+				filepath: "../../tests/samples/false_mirai",
+				params:   []int{1},
+				timeout:  180 * time.Second,
+				pullTime: 15 * time.Millisecond,
+				preGet:   true,
 			},
 			wantResult: Result{UUID: "1234", Done: true},
 			wantErr:    false,
@@ -623,11 +650,26 @@ func TestClient_WaitForFile(t *testing.T) {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
 						rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+					case "/api/lite/v2/results/1234_waiting_one_polling":
+						if req.Method != "GET" {
+							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
+						}
+						rw.Write([]byte(`{"uuid":"1234_waiting_one_polling", "status": true, "done": true}`))
 					case "/api/lite/v2/results/1234_never_done":
 						if req.Method != "GET" {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
 						rw.Write([]byte(`{"uuid":"1234", "status": true, "done": false}`))
+					case "/api/lite/v2/search/6fd51ba6957be10585068b68ab4a0683759436c3eb7cb426668773cdd7b70551":
+						if req.Method != "GET" {
+							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
+						}
+						rw.Write([]byte(`{"uuid":"1234_waiting_one_polling", "status": true, "done": false}`))
+					case "/api/lite/v2/search/6ae8a75555209fd6c44157c0aed8016e763ff435a19cf186f76863140143ff72":
+						if req.Method != "GET" {
+							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
+						}
+						rw.WriteHeader(http.StatusNotFound)
 					default:
 						t.Errorf("handler.WaitForFile() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 					}
@@ -646,6 +688,7 @@ func TestClient_WaitForFile(t *testing.T) {
 			}
 
 			waitForOptions := WaitForOptions{
+				PreGet:      tt.args.preGet,
 				Tags:        tt.args.tags,
 				Description: tt.args.description,
 				BypassCache: tt.args.bypassCache,
