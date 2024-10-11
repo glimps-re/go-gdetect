@@ -9,8 +9,11 @@ package gdetect
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -527,10 +530,14 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 	if waitOptions.Timeout != 0*time.Second {
 		timeout = waitOptions.Timeout
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 
-	// Submit file
+	// Ticker to perform get every n seconds
+	pullTime := time.Second * 2
+	if waitOptions.PullTime != 0*time.Second {
+		pullTime = waitOptions.PullTime
+	}
+
+	uuid := ""
 	submitOptions := SubmitOptions{
 		Tags:            waitOptions.Tags,
 		Description:     waitOptions.Description,
@@ -538,18 +545,62 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 		ArchivePassword: waitOptions.ArchivePassword,
 		Filename:        waitOptions.Filename,
 	}
-	uuid, err := c.SubmitReader(ctx, r, submitOptions)
+	if waitOptions.BypassCache {
+		// Submit file
+		uuid, err = c.SubmitReader(ctx, r, submitOptions)
+		if err != nil {
+			return
+		}
+	} else {
+		preGetCtx, preGetCancel := context.WithTimeout(ctx, timeout)
+		defer preGetCancel()
+
+		var buff bytes.Buffer
+		tee := io.TeeReader(r, &buff)
+
+		result, err = c.preGet(preGetCtx, tee)
+		var httpErr HTTPError
+		switch {
+		case errors.As(err, &httpErr) && httpErr.Code == http.StatusNotFound:
+			// Submit file
+			r = &buff
+			uuid, err = c.SubmitReader(ctx, r, submitOptions)
+			if err != nil {
+				return
+			}
+		case err != nil:
+			return
+		case result.Done:
+			return
+		default:
+			uuid = result.UUID
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	result, err = c.waitForUUID(ctx, uuid, pullTime)
 	if err != nil {
 		return
 	}
+	return
+}
 
-	// Ticker to perform get every n seconds
-	pullTime := time.Second * 2
-	if waitOptions.PullTime != 0*time.Second {
-		pullTime = waitOptions.PullTime
+func (c *Client) preGet(ctx context.Context, r io.Reader) (result Result, err error) {
+	hash := sha256.New()
+	if _, err = io.Copy(hash, r); err != nil {
+		return
 	}
-	ticker := time.NewTicker(pullTime)
+	readerSHA256 := hex.EncodeToString(hash.Sum(nil))
+	result, err = c.GetResultBySHA256(ctx, readerSHA256)
+	if err != nil {
+		return
+	}
+	return
+}
 
+func (c *Client) waitForUUID(ctx context.Context, uuid string, pullTime time.Duration) (result Result, err error) {
+	ticker := time.NewTicker(pullTime)
 	for {
 		select {
 		case <-ticker.C:

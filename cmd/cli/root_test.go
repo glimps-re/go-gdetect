@@ -142,6 +142,7 @@ func TestExecute(t *testing.T) {
 				flags: []string{
 					"--token", token,
 					"--pull-time", "1",
+					"--no-cache",
 				},
 			},
 			wantOut: `{"uuid":"1234","sha256":"","sha1":"","md5":"","ssdeep":"","is_malware":false,"score":0,"done":true,"timestamp":0,"filetype":"","size":0,"file_count":0,"duration":0,"special_status_code":0}`,
@@ -161,6 +162,7 @@ func TestExecute(t *testing.T) {
 					"-p", "password1",
 					"--retrieve-urls",
 					"--pull-time", "1",
+					"--no-cache",
 				},
 			},
 			wantOut: `{"uuid":"1234_token_sid","sha256":"","sha1":"","md5":"","ssdeep":"","is_malware":false,"score":0,"done":true,"timestamp":0,"filetype":"","size":0,"sid":"1234_token_sid","file_count":0,"duration":0,"token":"1234_token_sid","special_status_code":0}`,
