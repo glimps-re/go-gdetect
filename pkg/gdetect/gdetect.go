@@ -532,14 +532,25 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 		timeout = waitOptions.Timeout
 	}
 
+	// Ticker to perform get every n seconds
+	pullTime := time.Second * 2
+	if waitOptions.PullTime != 0*time.Second {
+		pullTime = waitOptions.PullTime
+	}
+
 	// TODO add tests for this
 	if waitOptions.PreGet {
 		preGetCtx, preGetCancel := context.WithTimeout(ctx, timeout)
 		defer preGetCancel()
-		result, err = c.preGet(preGetCtx, r, waitOptions.PullTime)
+
+		var buff bytes.Buffer
+		tee := io.TeeReader(r, &buff)
+
+		result, err = c.preGet(preGetCtx, tee, pullTime)
 		if err == nil {
 			return
 		}
+		r = &buff
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -558,11 +569,6 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 		return
 	}
 
-	// Ticker to perform get every n seconds
-	pullTime := time.Second * 2
-	if waitOptions.PullTime != 0*time.Second {
-		pullTime = waitOptions.PullTime
-	}
 	result, err = c.waitForUUID(ctx, uuid, pullTime)
 	if err != nil {
 		return
