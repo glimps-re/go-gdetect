@@ -9,7 +9,9 @@ package gdetect
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -171,6 +173,8 @@ type SubmitOptions struct {
 
 // Options for WaitForFile method
 type WaitForOptions struct {
+	// This option allows to do a get by sha256 before doing analysis, to save time
+	PreGet          bool
 	Tags            []string
 	Description     string
 	BypassCache     bool
@@ -191,6 +195,8 @@ type ProfileStatus struct {
 	// EstimatedAnalysisDuration is an estimated duration for the next analysis in milliseconds
 	// It's an optimistic estimation based on the average analysis time and the analysis queue
 	EstimatedAnalysisDuration int `json:"estimated_analysis_duration"`
+	// Malware threshold is the threshold at which a file is considered malicious
+	MalwareThreshold int `json:"malware_threshold"`
 }
 
 // DefaultTimeout is the default timeout for gdetect client
@@ -525,6 +531,27 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 	if waitOptions.Timeout != 0*time.Second {
 		timeout = waitOptions.Timeout
 	}
+
+	// Ticker to perform get every n seconds
+	pullTime := time.Second * 2
+	if waitOptions.PullTime != 0*time.Second {
+		pullTime = waitOptions.PullTime
+	}
+
+	if waitOptions.PreGet {
+		preGetCtx, preGetCancel := context.WithTimeout(ctx, timeout)
+		defer preGetCancel()
+
+		var buff bytes.Buffer
+		tee := io.TeeReader(r, &buff)
+
+		result, err = c.preGet(preGetCtx, tee, pullTime)
+		if err == nil {
+			return
+		}
+		r = &buff
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -541,13 +568,46 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 		return
 	}
 
-	// Ticker to perform get every n seconds
-	pullTime := time.Second * 2
-	if waitOptions.PullTime != 0*time.Second {
-		pullTime = waitOptions.PullTime
+	result, err = c.waitForUUID(ctx, uuid, pullTime)
+	if err != nil {
+		return
+	}
+	return
+}
+
+func (c *Client) preGet(ctx context.Context, r io.Reader, pullTime time.Duration) (result Result, err error) {
+	hash := sha256.New()
+	if _, err = io.Copy(hash, r); err != nil {
+		return
+	}
+	readerSHA256 := hex.EncodeToString(hash.Sum(nil))
+	result, err = c.GetResultBySHA256(ctx, readerSHA256)
+	if err != nil {
+		return
+	}
+	if result.Done {
+		return
 	}
 	ticker := time.NewTicker(pullTime)
+	for {
+		select {
+		case <-ticker.C:
+			result, err = c.GetResultByUUID(ctx, result.UUID)
+			if err != nil {
+				return
+			}
+			if result.Done {
+				return
+			}
+		case <-ctx.Done():
+			err = ErrTimeout
+			return
+		}
+	}
+}
 
+func (c *Client) waitForUUID(ctx context.Context, uuid string, pullTime time.Duration) (result Result, err error) {
+	ticker := time.NewTicker(pullTime)
 	for {
 		select {
 		case <-ticker.C:

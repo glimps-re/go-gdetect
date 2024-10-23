@@ -201,7 +201,7 @@ func TestExecute(t *testing.T) {
 					"--token", token,
 				},
 			},
-			wantOut: `{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`,
+			wantOut: `{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`,
 			wantErr: false,
 		},
 	}
@@ -245,7 +245,7 @@ func TestExecute(t *testing.T) {
 					rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
 				case "/api/lite/v2/status":
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
+					rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`))
 				default:
 					t.Errorf("handler.GetResultByUUID() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 				}

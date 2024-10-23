@@ -1,5 +1,12 @@
 # Changelog
 
+## [v1.4.0] - 2024-10-23
+
+### Added
+
+* [pkg] Add malware threshold to get status result
+* [pkg] Add option to preget result with sha256 for waitfor method
+
 ## [v1.3.0] - 2024-10-08
 
 ### Added
