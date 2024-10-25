@@ -215,34 +215,34 @@ func TestExecute(t *testing.T) {
 				switch strings.TrimSpace(req.URL.Path) {
 				case "/api/lite/v2/results/1234":
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+					rw.Write([]byte(`{"uuid":"1234", "done": true}`))
 				case "/api/lite/v2/results/1234_never_done":
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"uuid":"1234", "status": true, "done": false}`))
+					rw.Write([]byte(`{"uuid":"1234", "done": false}`))
 				case "/api/lite/v2/submit":
 					rw.WriteHeader(http.StatusOK)
 					switch strings.TrimSpace(req.FormValue("description")) {
 					case "valid test":
-						rw.Write([]byte(`{"uuid":"1234", "status": true}`))
+						rw.Write([]byte(`{"uuid":"1234"}`))
 					case "never done":
-						rw.Write([]byte(`{"uuid":"1234_never_done", "status": true}`))
+						rw.Write([]byte(`{"uuid":"1234_never_done"}`))
 					case "with token and sid":
-						rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true}`))
+						rw.Write([]byte(`{"uuid":"1234_token_sid"}`))
 					default:
-						rw.Write([]byte(`{"uuid":"1234", "status": true}`))
+						rw.Write([]byte(`{"uuid":"1234"}`))
 					}
 				case "/api/lite/v2/results/1234_token":
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true, "done": true, "token":"1234_token_sid"}`))
+					rw.Write([]byte(`{"uuid":"1234_token_sid", "done": true, "token":"1234_token_sid"}`))
 				case "/api/lite/v2/results/1234_token_sid":
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true, "done": true, "sid":"1234_token_sid", "token":"1234_token_sid"}`))
+					rw.Write([]byte(`{"uuid":"1234_token_sid", "done": true, "sid":"1234_token_sid", "token":"1234_token_sid"}`))
 				case "/api/lite/v2/search/1234_token_sid":
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true, "done": true, "sid":"1234_token_sid", "token":"1234_token_sid"}`))
+					rw.Write([]byte(`{"uuid":"1234_token_sid", "done": true, "sid":"1234_token_sid", "token":"1234_token_sid"}`))
 				case "/api/lite/v2/search/1234":
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+					rw.Write([]byte(`{"uuid":"1234", "done": true}`))
 				case "/api/lite/v2/status":
 					rw.WriteHeader(http.StatusOK)
 					rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))

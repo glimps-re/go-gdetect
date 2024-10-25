@@ -392,10 +392,9 @@ func (c *Client) SubmitFile(ctx context.Context, filepath string, submitOptions 
 func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions SubmitOptions) (uuid string, err error) {
 	// Struct corresponding to submit json result
 	type responseT struct {
-		Status bool   `json:"status"`
-		UUID   string `json:"uuid,omitempty"`
-		ID     string `json:"id,omitempty"`
-		Error  string `json:"error,omitempty"`
+		UUID  string `json:"uuid,omitempty"`
+		ID    string `json:"id,omitempty"`
+		Error string `json:"error,omitempty"`
 	}
 
 	var (
@@ -481,10 +480,6 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 		return
 	}
 
-	if !response.Status {
-		err = fmt.Errorf("%s", response.Error)
-		return
-	}
 	uuid = response.UUID
 	if c.syndetect {
 		uuid = response.ID

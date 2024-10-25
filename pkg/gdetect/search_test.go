@@ -51,7 +51,7 @@ func TestClient_GetResults(t *testing.T) {
 				ctx: context.Background(),
 			},
 			serverCode: http.StatusNotFound,
-			serverBody: `{"status":false,"error":"not found"}`,
+			serverBody: `{"error":"not found"}`,
 			wantErr:    false,
 		},
 		{
