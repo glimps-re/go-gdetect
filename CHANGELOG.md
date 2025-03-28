@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.5.0] - 2025-03-28
+
+### Added
+
+* [pkg] Add WaitFor UUID method to client
+
 ## [v1.4.0] - 2024-10-23
 
 ### Added

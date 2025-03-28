@@ -70,6 +70,7 @@ type ExtendedGDetectSubmitter interface {
 	GetFullSubmissionByUUID(ctx context.Context, uuid string) (result interface{}, err error)
 	GetProfileStatus(ctx context.Context) (status ProfileStatus, err error)
 	GetAPIVersion(ctx context.Context) (version string, err error)
+	WaitForUUID(ctx context.Context, uuid string, pullTime time.Duration) (result Result, err error)
 }
 
 var _ GDetectSubmitter = &Client{}
@@ -579,7 +580,7 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	result, err = c.waitForUUID(ctx, uuid, pullTime)
+	result, err = c.WaitForUUID(ctx, uuid, pullTime)
 	if err != nil {
 		return
 	}
@@ -599,7 +600,7 @@ func (c *Client) preGet(ctx context.Context, r io.Reader) (result Result, err er
 	return
 }
 
-func (c *Client) waitForUUID(ctx context.Context, uuid string, pullTime time.Duration) (result Result, err error) {
+func (c *Client) WaitForUUID(ctx context.Context, uuid string, pullTime time.Duration) (result Result, err error) {
 	ticker := time.NewTicker(pullTime)
 	for {
 		select {
