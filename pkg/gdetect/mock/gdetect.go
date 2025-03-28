@@ -3,6 +3,7 @@ package gdetectmock
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/glimps-re/go-gdetect/pkg/gdetect"
 )
@@ -20,6 +21,7 @@ type MockGDetectSubmitter struct {
 	GetFullSubmissionByUUIDMock func(ctx context.Context, uuid string) (result interface{}, err error)
 	GetProfileStatusMock        func(ctx context.Context) (status gdetect.ProfileStatus, err error)
 	GetAPIVersionMock           func(ctx context.Context) (version string, err error)
+	WaitForUUIDMock             func(ctx context.Context, uuid string, pullTime time.Duration) (result gdetect.Result, err error)
 }
 
 func (m *MockGDetectSubmitter) GetResultByUUID(ctx context.Context, uuid string) (result gdetect.Result, err error) {
@@ -104,4 +106,11 @@ func (m *MockGDetectSubmitter) GetAPIVersion(ctx context.Context) (version strin
 		return m.GetAPIVersionMock(ctx)
 	}
 	panic("GetAPIVersion not implemented in current test")
+}
+
+func (m *MockGDetectSubmitter) WaitForUUID(ctx context.Context, uuid string, pullTime time.Duration) (result gdetect.Result, err error) {
+	if m.WaitForUUIDMock != nil {
+		return m.WaitForUUIDMock(ctx, uuid, pullTime)
+	}
+	panic("WaitForUUID not implemented in current test")
 }
