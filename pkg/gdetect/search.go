@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"strconv"
 )
 
 type results struct {
@@ -21,15 +23,20 @@ func (c *Client) GetResults(ctx context.Context, from int, size int, tags ...str
 
 	// Add request queries
 	q := request.URL.Query()
-	q.Add("from", fmt.Sprintf("%d", from))
-	q.Add("size", fmt.Sprintf("%d", size))
+	q.Add("from", strconv.Itoa(from))
+	q.Add("size", strconv.Itoa(size))
 	if len(tags) > 0 {
 		q.Add("tags", tags[0])
 	}
 
 	request.URL.RawQuery = q.Encode()
 
-	resp, err := c.HttpClient.Do(request)
+	resp, err := c.doRequest(ctx, request, []int{http.StatusOK, http.StatusNotFound},
+		http.StatusTooManyRequests,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout,
+	)
 	if err != nil {
 		return
 	}
@@ -38,16 +45,13 @@ func (c *Client) GetResults(ctx context.Context, from int, size int, tags ...str
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if e := resp.Body.Close(); e != nil {
+			Logger.Error("could not close response body", slog.String("error", e.Error()))
+		}
+	}()
 
-	switch resp.StatusCode {
-	// server return a 404 status when no result is found
-	case http.StatusNotFound:
-		return
-	case http.StatusOK:
-		break
-	default:
-		err = fmt.Errorf("invalid response from endpoint, %s: %s", resp.Status, string(rawBody))
+	if resp.StatusCode == http.StatusNotFound {
 		return
 	}
 

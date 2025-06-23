@@ -63,11 +63,15 @@ func init() {
 
 	// If token is not set as an env variable it should be specified as an argument
 	if envAPIToken == "" {
-		rootCmd.MarkPersistentFlagRequired("token")
+		if e := rootCmd.MarkPersistentFlagRequired("token"); e != nil {
+			rootCmd.PrintErr(e)
+		}
 	}
 
 	// If url is not set as an env variable it should be specified as an argument
 	if envAPIURL == "" {
-		rootCmd.MarkPersistentFlagRequired("url")
+		if e := rootCmd.MarkPersistentFlagRequired("url"); e != nil {
+			rootCmd.PrintErr(e)
+		}
 	}
 }

@@ -1,7 +1,6 @@
 package gdetect
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -13,7 +12,6 @@ func TestClient_GetResults(t *testing.T) {
 		Token string
 	}
 	type args struct {
-		ctx  context.Context
 		from int
 		size int
 	}
@@ -27,17 +25,16 @@ func TestClient_GetResults(t *testing.T) {
 		wantErr    bool
 	}{
 		{
-			name:    "empty",
-			wantErr: true,
+			name:       "empty",
+			serverCode: http.StatusOK,
+			wantErr:    true,
 		},
 		{
 			name: "server returns 500",
 			fields: fields{
 				Token: token,
 			},
-			args: args{
-				ctx: context.Background(),
-			},
+			args:       args{},
 			serverCode: http.StatusInternalServerError,
 			serverBody: `internal server error`,
 			wantErr:    true,
@@ -47,9 +44,7 @@ func TestClient_GetResults(t *testing.T) {
 			fields: fields{
 				Token: token,
 			},
-			args: args{
-				ctx: context.Background(),
-			},
+			args:       args{},
 			serverCode: http.StatusNotFound,
 			serverBody: `{"status":false,"error":"not found"}`,
 			wantErr:    false,
@@ -59,9 +54,7 @@ func TestClient_GetResults(t *testing.T) {
 			fields: fields{
 				Token: token,
 			},
-			args: args{
-				ctx: context.Background(),
-			},
+			args:       args{},
 			serverCode: http.StatusOK,
 			serverBody: `{"count": invalid json`,
 			wantErr:    true,
@@ -71,9 +64,7 @@ func TestClient_GetResults(t *testing.T) {
 			fields: fields{
 				Token: token,
 			},
-			args: args{
-				ctx: context.Background(),
-			},
+			args:       args{},
 			serverCode: http.StatusOK,
 			serverBody: `{"count":2,"submissions":[{"uuid":"50e42d45-d837-4dca-9017-5f02284633be","is_malware":true,"done":true,"error":false,"filename":"","date":1200,"file_size":18,"file_type":"exe","score":1280,"malwares":["test_m2"]},{"uuid":"99f59137-ec95-4927-b766-3d905be9d05d","is_malware":false,"done":false,"error":false,"filename":"","date":1239,"file_size":17,"file_type":"text","score":127,"malwares":[]}]}`,
 			wantErr:    false,
@@ -91,7 +82,9 @@ func TestClient_GetResults(t *testing.T) {
 						t.Errorf("handler.SubmitFile() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
 					}
 					rw.WriteHeader(tt.serverCode)
-					rw.Write([]byte(tt.serverBody))
+					if _, e := rw.Write([]byte(tt.serverBody)); e != nil {
+						t.Fatalf("could not write response, error: %s", e.Error())
+					}
 				}),
 			)
 			defer s.Close()
@@ -101,7 +94,7 @@ func TestClient_GetResults(t *testing.T) {
 				HttpClient: http.DefaultClient,
 			}
 
-			gotUuids, err := c.GetResults(tt.args.ctx, tt.args.from, tt.args.size)
+			gotUuids, err := c.GetResults(t.Context(), tt.args.from, tt.args.size)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.GetResults() error = %v, wantErr %v", err, tt.wantErr)
 				return
