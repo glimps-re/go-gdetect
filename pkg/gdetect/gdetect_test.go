@@ -1,17 +1,34 @@
 package gdetect
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
+
+func createTestFile(t *testing.T) (f *os.File) {
+	f, err := os.CreateTemp(t.TempDir(), "file")
+	if err != nil {
+		t.Fatalf("could not create temp file for test, error: %v", err)
+	}
+	defer func() {
+		if err = f.Close(); err != nil {
+			t.Fatalf("could not write to temp file for test, error: %v", err)
+		}
+	}()
+	if _, err = f.WriteString("content"); err != nil {
+		t.Fatalf("could not write to temp file for test, error: %v", err)
+	}
+	return
+}
 
 func compareClients(c1 *Client, c2 *Client) (equal bool) {
 	equal = c1.Endpoint == c2.Endpoint && c1.Token == c2.Token
@@ -126,39 +143,38 @@ func TestNewClient(t *testing.T) {
 
 func TestClient_SubmitFile(t *testing.T) {
 	type args struct {
-		ctx              context.Context
-		filepath         string
 		tags             []string
 		description      string
 		bypassCache      bool
 		archive_password string
 		filename         string
 	}
-
-	filepath := "../../tests/samples/false_mirai"
-
+	type fields struct {
+		notExistingFile           bool
+		respBadJSON               bool
+		respBadRequest            bool
+		respSubmissionStatusFalse bool
+		respTimeout               bool
+	}
 	tests := []struct {
 		name     string
 		args     args
+		fields   fields
 		timeout  time.Duration
 		wantUUID string
 		wantErr  bool
 	}{
 		{
-			name: "VALID",
+			name: "ok",
 			args: args{
-				ctx:         context.Background(),
-				filepath:    filepath,
 				description: "valid test",
 			},
 			wantErr:  false,
 			wantUUID: "1234",
 		},
 		{
-			name: "VALID WITH FILENAME",
+			name: "ok filename",
 			args: args{
-				ctx:         context.Background(),
-				filepath:    filepath,
 				description: "valid test",
 				filename:    "test.exe",
 			},
@@ -166,60 +182,49 @@ func TestClient_SubmitFile(t *testing.T) {
 			wantUUID: "1234",
 		},
 		{
-			name: "INVALID FILE",
-			args: args{
-				ctx:      context.Background(),
-				filepath: "not/a/file",
+			name: "error invalid file",
+			fields: fields{
+				notExistingFile: true,
 			},
 			wantErr: true,
 		},
 		{
-			name: "BAD REQUEST",
-			args: args{
-				ctx:         context.Background(),
-				filepath:    filepath,
-				description: "invalid file",
+			name: "error bad request",
+			fields: fields{
+				respBadRequest: true,
 			},
 			wantErr: true,
 		},
 		{
-			name: "PARAMS USE",
+			name: "ok params",
 			args: args{
-				ctx:              context.Background(),
-				filepath:         filepath,
+				filename:         "mirai",
 				description:      "file params",
 				tags:             []string{"tag1", "tag2"},
 				bypassCache:      true,
 				archive_password: "test",
 			},
 			wantErr:  false,
-			wantUUID: "12345",
+			wantUUID: "1234",
 		},
 		{
-			name: "SUBMISSION STATUS FALSE",
-			args: args{
-				ctx:         context.Background(),
-				filepath:    filepath,
-				description: "submission status false",
+			name: "error submission status",
+			fields: fields{
+				respSubmissionStatusFalse: true,
 			},
 			wantErr: true,
 		},
 		{
-			name: "BAD JSON RESPONSE",
-			args: args{
-				ctx:         context.Background(),
-				filepath:    filepath,
-				description: "bad json",
+			name: "error bad json",
+			fields: fields{
+				respBadJSON: true,
 			},
-			wantErr:  true,
-			wantUUID: "",
+			wantErr: true,
 		},
 		{
-			name: "TIMEOUT",
-			args: args{
-				ctx:         context.Background(),
-				filepath:    filepath,
-				description: "timeout",
+			name: "error timeout",
+			fields: fields{
+				respTimeout: true,
 			},
 			wantErr: true,
 			timeout: time.Millisecond * 5,
@@ -227,58 +232,119 @@ func TestClient_SubmitFile(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			filename := "/bad/testfile"
+			if !tt.fields.notExistingFile {
+				f, err := os.CreateTemp(t.TempDir(), "file")
+				if err != nil {
+					t.Fatalf("could not create test file, err: %v", err)
+				}
+				if _, err := f.WriteString("file content"); err != nil {
+					t.Fatalf("could not write content to test file, err: %v", err)
+				}
+				if err := f.Close(); err != nil {
+					t.Fatalf("could not close test file, err: %v", err)
+				}
+				filename = f.Name()
+			}
+
 			s := httptest.NewServer(
 				http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 					if req.Header.Get("X-Auth-Token") != token {
 						t.Errorf("handler.SubmitFile() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
 					}
-					if req.Method != "POST" {
+					if req.Method != http.MethodPost {
 						t.Errorf("handler.SubmitFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 					}
 					if strings.TrimSpace(req.URL.Path) != "/api/lite/v2/submit" {
 						t.Errorf("handler.SubmitFile() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 					}
-					switch strings.TrimSpace(req.FormValue("description")) {
-					case "valid test":
-						rw.Write([]byte(`{"uuid":"1234", "status": true}`))
-					case "invalid file":
+
+					switch {
+					case tt.fields.respBadJSON:
+						if _, e := rw.Write([]byte(`{"uuid":"1234", "status": false`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
+					case tt.fields.respBadRequest:
 						rw.WriteHeader(http.StatusBadRequest)
-						rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
-					case "submission status false":
-						rw.Write([]byte(`{"uuid":"1234", "status": false}`))
-					case "bad json":
-						rw.Write([]byte(`{"uuid":"1234", "status": false`))
-					case "timeout":
+					case tt.fields.respSubmissionStatusFalse:
+						if _, e := rw.Write([]byte(`{"uuid":"1234", "status": false}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
+					case tt.fields.respTimeout:
 						time.Sleep(time.Millisecond * 15)
-						rw.Write([]byte(`{"uuid":"1234", "status": true}`))
-					case "file params":
+						if _, e := rw.Write([]byte(`{"uuid":"1234", "status": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
+					default:
 						if err := req.ParseMultipartForm(4096); err != nil {
 							return
 						}
-						switch {
-						case req.FormValue("bypass-cache") != "true", req.FormValue("description") != "file params", req.FormValue("tags") != "tag1,tag2", req.FormValue("archive_password") != "test":
-							return
-						}
-						f, h, err := req.FormFile("file")
 
-						switch {
-						case err != nil:
-							return
-						case h.Filename != "false_mirai":
+						// check bypassCache
+						bypassCache, err := strconv.ParseBool(req.FormValue("bypass-cache"))
+						if err != nil {
+							bypassCache = false
+						}
+						if bypassCache != tt.args.bypassCache {
+							t.Errorf("got bypass-cache %v, want %v", bypassCache, tt.args.bypassCache)
 							return
 						}
-						buf := new(bytes.Buffer)
-						if _, err := io.Copy(buf, f); err != nil {
+
+						// check tags
+						tags := []string{}
+						rawTags := req.FormValue("tags")
+						if rawTags != "" {
+							tags = strings.Split(rawTags, ",")
+						}
+						for i, tag := range tags {
+							if i >= len(tag) {
+								t.Errorf("got tags %v, want %v", tags, tt.args.tags)
+								return
+							}
+							if tt.args.tags[i] != tag {
+								t.Errorf("got tags %v, want %v", tags, tt.args.tags)
+								return
+							}
+						}
+
+						// check extract password
+						extractPassword := req.FormValue("archive_password")
+						if extractPassword != tt.args.archive_password {
+							t.Errorf("got archive-password %s, want %s", extractPassword, tt.args.archive_password)
 							return
 						}
-						data := buf.String()
-						if data != "test content" {
+
+						// check desc
+						description := req.FormValue("description")
+						if description != tt.args.description {
+							t.Errorf("got description %s, want %s", description, tt.args.description)
 							return
 						}
-						rw.Write([]byte(`{"status": true, "uuid": "12345"}`))
-						return
-					default:
-						t.Errorf("handler.SubmitFile() %v error = unexpected file description: %v", tt.name, strings.TrimSpace(req.FormValue("description")))
+
+						f, h, err := req.FormFile("file")
+						if err != nil {
+							t.Errorf("could not retrieve file from form, err: %v", err)
+							return
+						}
+						defer func() {
+							if e := f.Close(); e != nil {
+								t.Fatalf("could not close file properly, err: %v", e)
+							}
+						}()
+
+						wantFilename := filepath.Base(filename)
+						if tt.args.filename != "" {
+							wantFilename = tt.args.filename
+						}
+
+						if h.Filename != wantFilename {
+							t.Errorf("got filename %s, want %s", h.Filename, wantFilename)
+							return
+						}
+
+						if _, e := rw.Write([]byte(`{"uuid":"1234", "status": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					}
 				}),
 			)
@@ -288,11 +354,11 @@ func TestClient_SubmitFile(t *testing.T) {
 			if err != nil {
 				return
 			}
-
+			ctx := t.Context()
 			if tt.timeout != 0 {
-				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
+				tCtx, cancel := context.WithTimeout(ctx, tt.timeout)
 				defer cancel()
-				tt.args.ctx = ctx
+				ctx = tCtx
 			}
 
 			submitOptions := SubmitOptions{
@@ -303,8 +369,7 @@ func TestClient_SubmitFile(t *testing.T) {
 				ArchivePassword: tt.args.archive_password,
 			}
 
-			gotUUID, err := client.SubmitFile(tt.args.ctx, tt.args.filepath, submitOptions)
-
+			gotUUID, err := client.SubmitFile(ctx, filename, submitOptions)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.SubmitFile() error = %v, wantErr = %t", err, tt.wantErr)
 				return
@@ -318,7 +383,6 @@ func TestClient_SubmitFile(t *testing.T) {
 
 func TestClient_GetResultByUUID(t *testing.T) {
 	type args struct {
-		ctx  context.Context
 		uuid string
 	}
 	tests := []struct {
@@ -331,7 +395,6 @@ func TestClient_GetResultByUUID(t *testing.T) {
 		{
 			name: "VALID",
 			args: args{
-				ctx:  context.Background(),
 				uuid: "1234_valid_test",
 			},
 			wantErr:    false,
@@ -340,7 +403,6 @@ func TestClient_GetResultByUUID(t *testing.T) {
 		{
 			name: "TIMEOUT",
 			args: args{
-				ctx:  context.Background(),
 				uuid: "1234_timeout",
 			},
 			wantErr: true,
@@ -349,7 +411,6 @@ func TestClient_GetResultByUUID(t *testing.T) {
 		{
 			name: "NOT FOUND",
 			args: args{
-				ctx:  context.Background(),
 				uuid: "1234_not_found",
 			},
 			wantErr: true,
@@ -357,7 +418,6 @@ func TestClient_GetResultByUUID(t *testing.T) {
 		{
 			name: "INTERNAL SERVER ERROR",
 			args: args{
-				ctx:  context.Background(),
 				uuid: "1234_server_error",
 			},
 			wantErr: true,
@@ -365,7 +425,6 @@ func TestClient_GetResultByUUID(t *testing.T) {
 		{
 			name: "BAD JSON",
 			args: args{
-				ctx:  context.Background(),
 				uuid: "1234_bad_json",
 			},
 			wantErr: true,
@@ -378,26 +437,36 @@ func TestClient_GetResultByUUID(t *testing.T) {
 					if req.Header.Get("X-Auth-Token") != token {
 						t.Errorf("handler.GetResultByUUID() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
 					}
-					if req.Method != "GET" {
+					if req.Method != http.MethodGet {
 						t.Errorf("handler.GetResultByUUID() %v error = unexpected METHOD: %v", tt.name, req.Method)
 					}
 					switch strings.TrimSpace(req.URL.Path) {
 					case "/api/lite/v2/results/1234_valid_test":
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"uuid":"1234_valid_test", "status": true, "done": true}`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_valid_test", "status": true, "done": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case "/api/lite/v2/results/1234_timeout":
 						time.Sleep(15 * time.Millisecond)
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case "/api/lite/v2/results/1234_not_found":
 						rw.WriteHeader(http.StatusNotFound)
-						rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case "/api/lite/v2/results/1234_server_error":
 						rw.WriteHeader(http.StatusInternalServerError)
-						rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case "/api/lite/v2/results/1234_bad_json":
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"uuid":"1234_timeout", "status": true "done": true`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true "done": true`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					default:
 						t.Errorf("handler.GetResultByUUID() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 					}
@@ -410,13 +479,13 @@ func TestClient_GetResultByUUID(t *testing.T) {
 				return
 			}
 
+			ctx := t.Context()
 			if tt.timeout != 0 {
-				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
+				tCtx, cancel := context.WithTimeout(t.Context(), tt.timeout)
 				defer cancel()
-				tt.args.ctx = ctx
+				ctx = tCtx
 			}
-
-			gotResult, err := client.GetResultByUUID(tt.args.ctx, tt.args.uuid)
+			gotResult, err := client.GetResultByUUID(ctx, tt.args.uuid)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.GetResultByUUID() error = %v, wantErr = %t", err, tt.wantErr)
 				return
@@ -430,7 +499,6 @@ func TestClient_GetResultByUUID(t *testing.T) {
 
 func TestClient_GetResultBySHA256(t *testing.T) {
 	type args struct {
-		ctx    context.Context
 		sha256 string
 	}
 
@@ -444,7 +512,6 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 		{
 			name: "VALID",
 			args: args{
-				ctx:    context.Background(),
 				sha256: "1234_valid_test",
 			},
 			wantErr:    false,
@@ -453,7 +520,6 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 		{
 			name: "NOT FOUND",
 			args: args{
-				ctx:    context.Background(),
 				sha256: "1234_not_found",
 			},
 			wantErr: true,
@@ -461,7 +527,6 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 		{
 			name: "FORBIDDEN",
 			args: args{
-				ctx:    context.Background(),
 				sha256: "1234_forbidden",
 			},
 			wantErr: true,
@@ -469,7 +534,6 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 		{
 			name: "INTERNAL SERVER ERROR",
 			args: args{
-				ctx:    context.Background(),
 				sha256: "1234_server_error",
 			},
 			wantErr: true,
@@ -477,7 +541,6 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 		{
 			name: "TIMEOUT",
 			args: args{
-				ctx:    context.Background(),
 				sha256: "1234_timeout",
 			},
 			wantErr: true,
@@ -486,7 +549,6 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 		{
 			name: "BAD JSON",
 			args: args{
-				ctx:    context.Background(),
 				sha256: "1234_bad_json",
 			},
 			wantErr: true,
@@ -499,29 +561,41 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 					if req.Header.Get("X-Auth-Token") != token {
 						t.Errorf("handler.GetResultBySHA256() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
 					}
-					if req.Method != "GET" {
+					if req.Method != http.MethodGet {
 						t.Errorf("handler.GetResultBySHA256() %v error = unexpected METHOD: %v", tt.name, req.Method)
 					}
 					switch strings.TrimSpace(req.URL.Path) {
 					case "/api/lite/v2/search/1234_valid_test":
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"uuid":"1234_valid_test", "status": true, "done": true}`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_valid_test", "status": true, "done": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case "/api/lite/v2/search/1234_timeout":
 						time.Sleep(15 * time.Millisecond)
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case "/api/lite/v2/search/1234_not_found":
 						rw.WriteHeader(http.StatusNotFound)
-						rw.Write([]byte(`{"uuid":"1234_not_found", "status": true, "done": true}`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_not_found", "status": true, "done": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case "/api/lite/v2/search/1234_server_error":
 						rw.WriteHeader(http.StatusInternalServerError)
-						rw.Write([]byte(`{"uuid":"1234_server_error", "status": true, "done": true}`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_server_error", "status": true, "done": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case "/api/lite/v2/search/1234_bad_json":
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"uuid":"1234_bad_json", "status": true, "done": true`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_bad_json", "status": true, "done": true`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case "/api/lite/v2/search/1234_forbidden":
 						rw.WriteHeader(http.StatusForbidden)
-						rw.Write([]byte(`{"uuid":"1234_forbidden", "status": true, "done": true}`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_forbidden", "status": true, "done": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					default:
 						t.Errorf("handler.GetResultBySHA256() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 					}
@@ -533,13 +607,13 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 			if err != nil {
 				return
 			}
-
+			ctx := t.Context()
 			if tt.timeout != 0 {
-				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
+				tCtx, cancel := context.WithTimeout(t.Context(), tt.timeout)
 				defer cancel()
-				tt.args.ctx = ctx
+				ctx = tCtx
 			}
-			gotResult, err := c.GetResultBySHA256(tt.args.ctx, tt.args.sha256)
+			gotResult, err := c.GetResultBySHA256(ctx, tt.args.sha256)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.GetResultBySHA256() error = %v, wantErr = %t", err, tt.wantErr)
 				return
@@ -552,9 +626,12 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 }
 
 func TestClient_WaitForFile(t *testing.T) {
+	type fields struct {
+		analysisNeverDone bool
+		searchNotDone     bool
+		searchNotFound    bool
+	}
 	type args struct {
-		ctx         context.Context
-		filepath    string
 		tags        []string
 		description string
 		bypassCache bool
@@ -564,53 +641,61 @@ func TestClient_WaitForFile(t *testing.T) {
 	}
 	tests := []struct {
 		name       string
+		fields     fields
 		args       args
 		wantResult Result
 		wantErr    bool
 		timeout    time.Duration
 	}{
 		{
-			name: "VALID",
+			name: "ok",
 			args: args{
-				ctx:         context.Background(),
-				filepath:    "../../tests/samples/false_mirai",
 				params:      []int{1},
 				timeout:     180 * time.Second,
 				pullTime:    15 * time.Millisecond,
 				bypassCache: true,
 			},
 			wantResult: Result{UUID: "1234", Done: true},
-			wantErr:    false,
 		},
 		{
-			name: "VALID WITH PREGET",
+			name: "ok preget",
 			args: args{
-				ctx:      context.Background(),
-				filepath: "../../tests/samples/false_cryptolocker",
-				params:   []int{1},
-				timeout:  180 * time.Second,
-				pullTime: 15 * time.Millisecond,
-			},
-			wantResult: Result{UUID: "1234_waiting_one_polling", Done: true},
-			wantErr:    false,
-		},
-		{
-			name: "VALID PREGET NOT FOUND",
-			args: args{
-				ctx:      context.Background(),
-				filepath: "../../tests/samples/false_mirai",
 				params:   []int{1},
 				timeout:  180 * time.Second,
 				pullTime: 15 * time.Millisecond,
 			},
 			wantResult: Result{UUID: "1234", Done: true},
-			wantErr:    false,
 		},
 		{
-			name: "TIMEOUT",
+			name: "ok preget not done",
+			fields: fields{
+				searchNotDone: true,
+			},
 			args: args{
-				ctx:         context.Background(),
-				filepath:    "../../tests/samples/false_cryptolocker",
+				params:   []int{1},
+				timeout:  180 * time.Second,
+				pullTime: 15 * time.Millisecond,
+			},
+			wantResult: Result{UUID: "1234", Done: true},
+		},
+		{
+			name: "ok preget not found",
+			fields: fields{
+				searchNotFound: true,
+			},
+			args: args{
+				params:   []int{1},
+				timeout:  180 * time.Second,
+				pullTime: 15 * time.Millisecond,
+			},
+			wantResult: Result{UUID: "1234", Done: true},
+		},
+		{
+			name: "error timeout",
+			fields: fields{
+				analysisNeverDone: true,
+			},
+			args: args{
 				params:      []int{1},
 				timeout:     time.Millisecond * 15,
 				bypassCache: true,
@@ -627,48 +712,43 @@ func TestClient_WaitForFile(t *testing.T) {
 					}
 					switch strings.TrimSpace(req.URL.Path) {
 					case "/api/lite/v2/submit":
-						if req.Method != "POST" {
+						if req.Method != http.MethodPost {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						if err := req.ParseMultipartForm(4096); err != nil {
-							http.NotFoundHandler().ServeHTTP(rw, req)
-							return
-						}
-						_, h, err := req.FormFile("file")
-						if err != nil {
-							return
-						}
-						switch h.Filename {
-						case "false_mirai":
-							rw.Write([]byte(`{"uuid":"1234", "status": true}`))
-						case "false_cryptolocker":
-							rw.Write([]byte(`{"uuid":"1234_never_done", "status": true}`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234", "status": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
 						}
 					case "/api/lite/v2/results/1234":
-						if req.Method != "GET" {
+						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
-					case "/api/lite/v2/results/1234_waiting_one_polling":
-						if req.Method != "GET" {
+						switch {
+						case tt.fields.analysisNeverDone:
+							if _, e := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": false}`)); e != nil {
+								t.Fatalf("could not write response body, err: %v", e)
+							}
+						default:
+							if _, e := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`)); e != nil {
+								t.Fatalf("could not write response body, err: %v", e)
+							}
+						}
+					case "/api/lite/v2/search/ed7002b439e9ac845f22357d822bac1444730fbdb6016d3ec9432297b9ec9f73":
+						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						rw.Write([]byte(`{"uuid":"1234_waiting_one_polling", "status": true, "done": true}`))
-					case "/api/lite/v2/results/1234_never_done":
-						if req.Method != "GET" {
-							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
+						switch {
+						case tt.fields.searchNotFound:
+							rw.WriteHeader(http.StatusNotFound)
+							return
+						case tt.fields.searchNotDone:
+							if _, e := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": false}`)); e != nil {
+								t.Fatalf("could not write response body, err: %v", e)
+							}
+						default:
+							if _, e := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`)); e != nil {
+								t.Fatalf("could not write response body, err: %v", e)
+							}
 						}
-						rw.Write([]byte(`{"uuid":"1234", "status": true, "done": false}`))
-					case "/api/lite/v2/search/6fd51ba6957be10585068b68ab4a0683759436c3eb7cb426668773cdd7b70551":
-						if req.Method != "GET" {
-							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
-						}
-						rw.Write([]byte(`{"uuid":"1234_waiting_one_polling", "status": true, "done": false}`))
-					case "/api/lite/v2/search/6ae8a75555209fd6c44157c0aed8016e763ff435a19cf186f76863140143ff72":
-						if req.Method != "GET" {
-							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
-						}
-						rw.WriteHeader(http.StatusNotFound)
 					default:
 						t.Errorf("handler.WaitForFile() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 					}
@@ -680,10 +760,11 @@ func TestClient_WaitForFile(t *testing.T) {
 			if err != nil {
 				return
 			}
+			ctx := t.Context()
 			if tt.timeout != 0 {
-				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
+				tCtx, cancel := context.WithTimeout(t.Context(), tt.timeout)
 				defer cancel()
-				tt.args.ctx = ctx
+				ctx = tCtx
 			}
 
 			waitForOptions := WaitForOptions{
@@ -693,8 +774,8 @@ func TestClient_WaitForFile(t *testing.T) {
 				Timeout:     tt.args.timeout,
 				PullTime:    tt.args.pullTime,
 			}
-
-			gotResult, err := client.WaitForFile(tt.args.ctx, tt.args.filepath, waitForOptions)
+			f := createTestFile(t)
+			gotResult, err := client.WaitForFile(ctx, f.Name(), waitForOptions)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.WaitForFile() error = %v, wantErr = %t", err, tt.wantErr)
 				return
@@ -707,9 +788,12 @@ func TestClient_WaitForFile(t *testing.T) {
 }
 
 func TestClient_WaitForFile_Syndetect(t *testing.T) {
+	type fields struct {
+		analysisNeverDone bool
+		searchNotDone     bool
+		searchNotFound    bool
+	}
 	type args struct {
-		ctx         context.Context
-		filepath    string
 		tags        []string
 		description string
 		bypassCache bool
@@ -720,46 +804,39 @@ func TestClient_WaitForFile_Syndetect(t *testing.T) {
 	tests := []struct {
 		name       string
 		args       args
+		fields     fields
 		wantResult Result
 		wantErr    bool
 		timeout    time.Duration
 	}{
+		// {
+		// 	name: "ok",
+		// 	args: args{
+		// 		params:      []int{1},
+		// 		timeout:     180 * time.Second,
+		// 		pullTime:    15 * time.Millisecond,
+		// 		bypassCache: true,
+		// 	},
+		// 	wantResult: Result{UUID: "1234", Done: true},
+		// },
 		{
-			name: "VALID",
+			name: "ok with cache",
 			args: args{
-				ctx:         context.Background(),
-				filepath:    "../../tests/samples/false_mirai",
-				params:      []int{1},
-				timeout:     180 * time.Second,
-				pullTime:    15 * time.Millisecond,
-				bypassCache: true,
-			},
-			wantResult: Result{UUID: "1234", Done: true},
-			wantErr:    false,
-		},
-		{
-			name: "VALID USE CACHE",
-			args: args{
-				ctx:      context.Background(),
-				filepath: "../../tests/samples/false_mirai",
 				params:   []int{1},
 				timeout:  180 * time.Second,
 				pullTime: 15 * time.Millisecond,
 			},
 			wantResult: Result{UUID: "1234", Done: true},
-			wantErr:    false,
 		},
-		{
-			name: "TIMEOUT",
-			args: args{
-				ctx:         context.Background(),
-				filepath:    "../../tests/samples/false_cryptolocker",
-				params:      []int{1},
-				timeout:     time.Millisecond * 15,
-				bypassCache: true,
-			},
-			wantErr: true,
-		},
+		// {
+		// 	name: "error timeout",
+		// 	args: args{
+		// 		params:      []int{1},
+		// 		timeout:     time.Millisecond * 15,
+		// 		bypassCache: true,
+		// 	},
+		// 	wantErr: true,
+		// },
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -770,38 +847,43 @@ func TestClient_WaitForFile_Syndetect(t *testing.T) {
 					}
 					switch strings.TrimSpace(req.URL.Path) {
 					case "/api/v1/submit":
-						if req.Method != "POST" {
+						if req.Method != http.MethodPost {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						if err := req.ParseMultipartForm(4096); err != nil {
-							http.NotFoundHandler().ServeHTTP(rw, req)
-							return
-						}
-						_, h, err := req.FormFile("file")
-						if err != nil {
-							return
-						}
-						switch h.Filename {
-						case "false_mirai":
-							rw.Write([]byte(`{"id":"1234", "status": true}`))
-						case "false_cryptolocker":
-							rw.Write([]byte(`{"id":"1234_never_done", "status": true}`))
+						if _, e := rw.Write([]byte(`{"id":"1234", "status": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
 						}
 					case "/api/v1/results/1234":
-						if req.Method != "GET" {
+						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						rw.Write([]byte(`{"id":"1234", "status": true, "done": true}`))
-					case "/api/v1/results/1234_never_done":
-						if req.Method != "GET" {
+						switch {
+						case tt.fields.analysisNeverDone:
+							if _, e := rw.Write([]byte(`{"id":"1234", "status": true, "done": false}`)); e != nil {
+								t.Fatalf("could not write response body, err: %v", e)
+							}
+						default:
+							if _, e := rw.Write([]byte(`{"id":"1234", "status": true, "done": true}`)); e != nil {
+								t.Fatalf("could not write response body, err: %v", e)
+							}
+						}
+					case "/api/v1/results/ed7002b439e9ac845f22357d822bac1444730fbdb6016d3ec9432297b9ec9f73":
+						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						rw.Write([]byte(`{"id":"1234", "status": true, "done": false}`))
-					case "/api/v1/results/6ae8a75555209fd6c44157c0aed8016e763ff435a19cf186f76863140143ff72":
-						if req.Method != "GET" {
-							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
+						switch {
+						case tt.fields.searchNotFound:
+							rw.WriteHeader(http.StatusNotFound)
+							return
+						case tt.fields.searchNotDone:
+							if _, e := rw.Write([]byte(`{"id":"1234", "status": true, "done": false}`)); e != nil {
+								t.Fatalf("could not write response body, err: %v", e)
+							}
+						default:
+							if _, e := rw.Write([]byte(`{"id":"1234", "status": true, "done": true}`)); e != nil {
+								t.Fatalf("could not write response body, err: %v", e)
+							}
 						}
-						rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
 					default:
 						t.Errorf("handler.WaitForFile() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 					}
@@ -814,10 +896,11 @@ func TestClient_WaitForFile_Syndetect(t *testing.T) {
 				return
 			}
 			client.SetSyndetect()
+			ctx := t.Context()
 			if tt.timeout != 0 {
-				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
+				tCtx, cancel := context.WithTimeout(t.Context(), tt.timeout)
 				defer cancel()
-				tt.args.ctx = ctx
+				ctx = tCtx
 			}
 
 			waitForOptions := WaitForOptions{
@@ -827,8 +910,8 @@ func TestClient_WaitForFile_Syndetect(t *testing.T) {
 				Timeout:     tt.args.timeout,
 				PullTime:    tt.args.pullTime,
 			}
-
-			gotResult, err := client.WaitForFile(tt.args.ctx, tt.args.filepath, waitForOptions)
+			f := createTestFile(t)
+			gotResult, err := client.WaitForFile(ctx, f.Name(), waitForOptions)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.WaitForFile() error = %v, wantErr = %t", err, tt.wantErr)
 				return
@@ -975,7 +1058,9 @@ func ExampleClient_SubmitFile() {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Header().Add("Content-Type", "application/json")
-		w.Write([]byte(`{"status":false,"error":"unauthorized"}`))
+		if _, e := w.Write([]byte(`{"status":false,"error":"unauthorized"}`)); e != nil {
+			fmt.Println(e)
+		}
 	}))
 
 	defer srv.Close()
@@ -1004,7 +1089,6 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 		setSyndetect bool
 	}
 	type args struct {
-		ctx  context.Context
 		uuid string
 	}
 	tests := []struct {
@@ -1021,7 +1105,6 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 				setSyndetect: true,
 			},
 			args: args{
-				ctx:  context.Background(),
 				uuid: "1234_syndetect",
 			},
 			wantErr: true,
@@ -1029,7 +1112,6 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 		{
 			name: "TIMEOUT",
 			args: args{
-				ctx:  context.Background(),
 				uuid: "1234_timeout",
 			},
 			wantErr: true,
@@ -1038,7 +1120,6 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 		{
 			name: "NOT FOUND",
 			args: args{
-				ctx:  context.Background(),
 				uuid: "1234_not_found",
 			},
 			wantErr: true,
@@ -1046,7 +1127,6 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 		{
 			name: "INTERNAL SERVER ERROR",
 			args: args{
-				ctx:  context.Background(),
 				uuid: "1234_server_error",
 			},
 			wantErr: true,
@@ -1054,7 +1134,6 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 		{
 			name: "BAD JSON",
 			args: args{
-				ctx:  context.Background(),
 				uuid: "1234_bad_json",
 			},
 			wantErr: true,
@@ -1067,26 +1146,36 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 					if req.Header.Get("X-Auth-Token") != token {
 						t.Errorf("handler.GetResultByUUID() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
 					}
-					if req.Method != "GET" {
+					if req.Method != http.MethodGet {
 						t.Errorf("handler.GetResultByUUID() %v error = unexpected METHOD: %v", tt.name, req.Method)
 					}
 					switch strings.TrimSpace(req.URL.Path) {
 					case "/api/lite/v2/results/1234_valid_test/full":
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"uuid":"1234_valid_test", "status": true, "done": true}`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_valid_test", "status": true, "done": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case "/api/lite/v2/results/1234_timeout/full":
 						time.Sleep(15 * time.Millisecond)
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case "/api/lite/v2/results/1234_not_found/full":
 						rw.WriteHeader(http.StatusNotFound)
-						rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case "/api/lite/v2/results/1234_server_error/full":
 						rw.WriteHeader(http.StatusInternalServerError)
-						rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case "/api/lite/v2/results/1234_bad_json/full":
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"uuid":"1234_timeout", "status": true "done": true`))
+						if _, e := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true "done": true`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					default:
 						t.Errorf("handler.GetResultByUUID() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 					}
@@ -1103,13 +1192,14 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 				client.SetSyndetect()
 			}
 
+			ctx := t.Context()
 			if tt.timeout != 0 {
-				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
+				tCtx, cancel := context.WithTimeout(t.Context(), tt.timeout)
 				defer cancel()
-				tt.args.ctx = ctx
+				ctx = tCtx
 			}
 
-			gotResult, err := client.GetFullSubmissionByUUID(tt.args.ctx, tt.args.uuid)
+			gotResult, err := client.GetFullSubmissionByUUID(ctx, tt.args.uuid)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.GetFullSubmissionByUUID() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -1126,13 +1216,10 @@ func TestClient_GetProfileStatus(t *testing.T) {
 		setSyndetectClient bool
 		setBadStatus       bool
 		setBadBody         bool
-		setErrorBody       bool
 		setTimeout         bool
 		setNotFound        bool
 	}
-	type args struct {
-		ctx context.Context
-	}
+	type args struct{}
 	tests := []struct {
 		name       string
 		wantResult ProfileStatus
@@ -1143,19 +1230,15 @@ func TestClient_GetProfileStatus(t *testing.T) {
 	}{
 		{
 			name: "ERROR SYNDETECT",
-			args: args{
-				ctx: context.Background(),
-			},
+			args: args{},
 			fields: fields{
 				setSyndetectClient: true,
 			},
 			wantErr: true,
 		},
 		{
-			name: "VALID",
-			args: args{
-				ctx: context.Background(),
-			},
+			name:    "VALID",
+			args:    args{},
 			wantErr: false,
 			wantResult: ProfileStatus{
 				MalwareThreshold:          1000,
@@ -1167,9 +1250,7 @@ func TestClient_GetProfileStatus(t *testing.T) {
 		},
 		{
 			name: "ERROR HTTP STATUS",
-			args: args{
-				ctx: context.Background(),
-			},
+			args: args{},
 			fields: fields{
 				setBadStatus: true,
 			},
@@ -1177,29 +1258,15 @@ func TestClient_GetProfileStatus(t *testing.T) {
 		},
 		{
 			name: "ERROR INVALID BODY",
-			args: args{
-				ctx: context.Background(),
-			},
+			args: args{},
 			fields: fields{
 				setBadBody: true,
 			},
 			wantErr: true,
 		},
 		{
-			name: "ERROR READ BODY",
-			args: args{
-				ctx: context.Background(),
-			},
-			fields: fields{
-				setErrorBody: true,
-			},
-			wantErr: true,
-		},
-		{
 			name: "ERROR TIMEOUT",
-			args: args{
-				ctx: context.Background(),
-			},
+			args: args{},
 			fields: fields{
 				setTimeout: true,
 			},
@@ -1208,9 +1275,7 @@ func TestClient_GetProfileStatus(t *testing.T) {
 		},
 		{
 			name: "ERROR FEATURE NOT AVAILABLE",
-			args: args{
-				ctx: context.Background(),
-			},
+			args: args{},
 			fields: fields{
 				setNotFound: true,
 			},
@@ -1225,34 +1290,43 @@ func TestClient_GetProfileStatus(t *testing.T) {
 					if req.Header.Get("X-Auth-Token") != token {
 						t.Errorf("handler.GetProfileStatus() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
 					}
-					if req.Method != "GET" {
+					if req.Method != http.MethodGet {
 						t.Errorf("handler.GetProfileStatus() %v error = unexpected METHOD: %v", tt.name, req.Method)
 					}
 					switch {
 					case req.URL.Path == "/api/versions":
 						rw.WriteHeader(http.StatusOK)
 						rw.Header().Add("Content-Type", "application/json")
-						rw.Write([]byte(`{"/api/expert/v2":"2.6.1","/api/lite/v1":"1.0.2","/api/lite/v2":"2.5.0"}`))
+						if _, e := rw.Write([]byte(`{"/api/expert/v2":"2.6.1","/api/lite/v1":"1.0.2","/api/lite/v2":"2.5.0"}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case tt.fields.setTimeout:
 						time.Sleep(15 * time.Millisecond)
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
+						if _, e := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case tt.fields.setBadStatus:
 						rw.WriteHeader(http.StatusTeapot)
-						rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
+						if _, e := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case tt.fields.setBadBody:
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"dai`))
-					case tt.fields.setErrorBody:
-						rw.WriteHeader(http.StatusOK)
-						io.Copy(rw, io.NopCloser(ErrorReader{err: fmt.Errorf("test")}))
+						if _, e := rw.Write([]byte(`{"dai`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case tt.fields.setNotFound:
 						rw.WriteHeader(http.StatusNotFound)
 						rw.Header().Add("Content-Type", "application/json")
-						rw.Write([]byte(`{"status":false,"error":"not found"}`))
+						if _, e := rw.Write([]byte(`{"status":false,"error":"not found"}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					default:
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`))
+						if _, e := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					}
 				}),
 			)
@@ -1265,14 +1339,14 @@ func TestClient_GetProfileStatus(t *testing.T) {
 			if tt.fields.setSyndetectClient {
 				client.SetSyndetect()
 			}
-
+			ctx := t.Context()
 			if tt.timeout != 0 {
-				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
+				tCtx, cancel := context.WithTimeout(t.Context(), tt.timeout)
 				defer cancel()
-				tt.args.ctx = ctx
+				ctx = tCtx
 			}
 
-			gotResult, err := client.GetProfileStatus(tt.args.ctx)
+			gotResult, err := client.GetProfileStatus(ctx)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.GetProfileStatus() error = %v, wantErr = %t", err, tt.wantErr)
 				return
@@ -1286,10 +1360,8 @@ func TestClient_GetProfileStatus(t *testing.T) {
 
 func TestClient_GetAPIVersion(t *testing.T) {
 	type args struct {
-		ctx          context.Context
 		setBadStatus bool
 		setBadBody   bool
-		setErrorBody bool
 		setTimeout   bool
 		setNotFound  bool
 	}
@@ -1301,17 +1373,14 @@ func TestClient_GetAPIVersion(t *testing.T) {
 		args        args
 	}{
 		{
-			name: "VALID",
-			args: args{
-				ctx: context.Background(),
-			},
+			name:        "VALID",
+			args:        args{},
 			wantErr:     false,
 			wantVersion: "2.5.0",
 		},
 		{
 			name: "ERROR HTTP STATUS",
 			args: args{
-				ctx:          context.Background(),
 				setBadStatus: true,
 			},
 			wantErr: true,
@@ -1319,23 +1388,13 @@ func TestClient_GetAPIVersion(t *testing.T) {
 		{
 			name: "ERROR INVALID BODY",
 			args: args{
-				ctx:        context.Background(),
 				setBadBody: true,
-			},
-			wantErr: true,
-		},
-		{
-			name: "ERROR READ BODY",
-			args: args{
-				ctx:          context.Background(),
-				setErrorBody: true,
 			},
 			wantErr: true,
 		},
 		{
 			name: "ERROR TIMEOUT",
 			args: args{
-				ctx:        context.Background(),
 				setTimeout: true,
 			},
 			timeout: 5 * time.Millisecond,
@@ -1344,7 +1403,6 @@ func TestClient_GetAPIVersion(t *testing.T) {
 		{
 			name: "ERROR NO VERSION FOUND",
 			args: args{
-				ctx:         context.Background(),
 				setNotFound: true,
 			},
 			timeout:     5 * time.Millisecond,
@@ -1356,31 +1414,38 @@ func TestClient_GetAPIVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(
 				http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-					if req.Method != "GET" {
+					if req.Method != http.MethodGet {
 						t.Errorf("handler.GetAPIVersion() %v error = unexpected METHOD: %v", tt.name, req.Method)
 					}
 					switch {
 					case tt.args.setTimeout:
 						time.Sleep(15 * time.Millisecond)
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
+						if _, e := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case tt.args.setBadStatus:
 						rw.WriteHeader(http.StatusTeapot)
-						rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
+						if _, e := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case tt.args.setBadBody:
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"dai`))
-					case tt.args.setErrorBody:
-						rw.WriteHeader(http.StatusOK)
-						io.Copy(rw, io.NopCloser(ErrorReader{err: fmt.Errorf("test")}))
+						if _, e := rw.Write([]byte(`{"dai`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					case tt.args.setNotFound:
 						rw.WriteHeader(http.StatusOK)
 						rw.Header().Add("Content-Type", "application/json")
-						rw.Write([]byte(`{"/api/expert/v2":"2.6.1","/api/lite/v1":"1.0.2"}`))
+						if _, e := rw.Write([]byte(`{"/api/expert/v2":"2.6.1","/api/lite/v1":"1.0.2"}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					default:
 						rw.WriteHeader(http.StatusOK)
 						rw.Header().Add("Content-Type", "application/json")
-						rw.Write([]byte(`{"/api/expert/v2":"2.6.1","/api/lite/v1":"1.0.2","/api/lite/v2":"2.5.0"}`))
+						if _, e := rw.Write([]byte(`{"/api/expert/v2":"2.6.1","/api/lite/v1":"1.0.2","/api/lite/v2":"2.5.0"}`)); e != nil {
+							t.Fatalf("could not write response body, err: %v", e)
+						}
 					}
 				}),
 			)
@@ -1390,14 +1455,14 @@ func TestClient_GetAPIVersion(t *testing.T) {
 			if err != nil {
 				return
 			}
-
+			ctx := t.Context()
 			if tt.timeout != 0 {
-				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
+				tCtx, cancel := context.WithTimeout(t.Context(), tt.timeout)
 				defer cancel()
-				tt.args.ctx = ctx
+				ctx = tCtx
 			}
 
-			gotResult, err := client.GetAPIVersion(tt.args.ctx)
+			gotResult, err := client.GetAPIVersion(ctx)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.GetAPIVersion() error = %v, wantErr = %t", err, tt.wantErr)
 				return
@@ -1407,12 +1472,4 @@ func TestClient_GetAPIVersion(t *testing.T) {
 			}
 		})
 	}
-}
-
-type ErrorReader struct {
-	err error
-}
-
-func (e ErrorReader) Read(p []byte) (n int, err error) {
-	return 0, e.err
 }

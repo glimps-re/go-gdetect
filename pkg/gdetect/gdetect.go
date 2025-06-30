@@ -22,27 +22,46 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/cenkalti/backoff/v5"
 )
 
 // Generic gdetect client errors.
 var (
-	ErrTimeout      = fmt.Errorf("timeout")
-	ErrBadToken     = fmt.Errorf("bad token")
-	ErrNoToken      = fmt.Errorf("no token in result")
-	ErrNoSID        = fmt.Errorf("no sid in result")
-	ErrNotAvailable = fmt.Errorf("this feature is not available")
+	ErrTimeout      = errors.New("timeout")
+	ErrBadToken     = errors.New("bad token")
+	ErrNoToken      = errors.New("no token in result")
+	ErrNoSID        = errors.New("no sid in result")
+	ErrNotAvailable = errors.New("this feature is not available")
 )
 
 var Logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+type RetryConfig struct {
+	MaxRetries      uint
+	InitialInterval time.Duration
+	MaxInterval     time.Duration
+	MaxElapsedTime  time.Duration
+}
+
+func DefaultRetryConfig() RetryConfig {
+	return RetryConfig{
+		MaxRetries:      0,
+		InitialInterval: time.Second,
+		MaxInterval:     30 * time.Second,
+		MaxElapsedTime:  2 * time.Minute,
+	}
+}
 
 type FeatureNotAvailableError struct {
 	Version string
 }
 
 func (e FeatureNotAvailableError) Error() string {
-	return fmt.Sprintf("feature not available, API version: %s", e.Version)
+	return "feature not available, API version: " + e.Version
 }
 
 type GDetectSubmitter interface {
@@ -70,16 +89,18 @@ type ExtendedGDetectSubmitter interface {
 	GetFullSubmissionByUUID(ctx context.Context, uuid string) (result interface{}, err error)
 	GetProfileStatus(ctx context.Context) (status ProfileStatus, err error)
 	GetAPIVersion(ctx context.Context) (version string, err error)
+	WaitForUUID(ctx context.Context, uuid string, pullTime time.Duration) (result Result, err error)
 }
 
 var _ GDetectSubmitter = &Client{}
 
 // Client is the representation of a Detect API CLient.
 type Client struct {
-	Endpoint   string
-	Token      string
-	HttpClient *http.Client
-	syndetect  bool
+	Endpoint    string
+	Token       string
+	HttpClient  *http.Client
+	syndetect   bool
+	retryConfig RetryConfig
 }
 
 // Result represent typical json result from Detect API operations like get or
@@ -201,26 +222,43 @@ type ProfileStatus struct {
 // DefaultTimeout is the default timeout for gdetect client
 var DefaultTimeout = time.Minute * 5
 
+// ClientOption defines functional options for Client configuration
+type ClientOption func(*Client)
+
+// WithRetryConfig sets the retry configuration for the client
+func WithRetryConfig(config RetryConfig) ClientOption {
+	return func(c *Client) {
+		c.retryConfig = config
+	}
+}
+
 // NewClient returns a fresh client, given endpoint token and insecure params.
 // The returned client could be used to perform operations on gdetect.
 //
 // If Client is well-formed, it returns error == nil. If error != nil, that
 // could mean that Token is invalid (by its length for example).
-func NewClient(endpoint, token string, insecure bool, httpClient *http.Client) (client *Client, err error) {
+func NewClient(endpoint, token string, insecure bool, httpClient *http.Client, opts ...ClientOption) (client *Client, err error) {
 	err = checkToken(token)
 	if err != nil {
 		return
 	}
 
 	client = &Client{
-		Endpoint:   endpoint,
-		Token:      token,
-		HttpClient: httpClient,
+		Endpoint:    endpoint,
+		Token:       token,
+		HttpClient:  httpClient,
+		retryConfig: DefaultRetryConfig(),
 	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(client)
+	}
+
 	if httpClient == nil {
 		transport := http.DefaultTransport
 		if insecure {
-			transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+			transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // config set by user
 		}
 		client.HttpClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
 	}
@@ -302,6 +340,67 @@ func (c *Client) getPath(path string) string {
 	panic("path not found")
 }
 
+func (c *Client) doRequest(ctx context.Context, req *http.Request, wantStatus []int, retryableStatusCodes ...int) (resp *http.Response, err error) {
+	var bodyBytes []byte
+	if req.Body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(req.Body)
+		if err != nil {
+			return nil, err
+		}
+		if e := req.Body.Close(); e != nil {
+			Logger.Error("could not close request body", slog.String("error", e.Error()))
+		}
+	}
+
+	operation := func() (*http.Response, error) {
+		if bodyBytes != nil {
+			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		}
+
+		resp, err := c.HttpClient.Do(req)
+		if err != nil {
+			return nil, backoff.Permanent(err)
+		}
+
+		if slices.Contains(wantStatus, resp.StatusCode) {
+			return resp, nil
+		}
+
+		defer func() {
+			if e := resp.Body.Close(); e != nil {
+				Logger.Error("error closing body", slog.String("error", e.Error()))
+			}
+		}()
+		rawBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, backoff.Permanent(fmt.Errorf("error reading response body, %w", err))
+		}
+		if slices.Contains(retryableStatusCodes, resp.StatusCode) {
+			return nil, NewHTTPError(resp, string(rawBody))
+		}
+		return nil, backoff.Permanent(NewHTTPError(resp, string(rawBody)))
+	}
+
+	exponentialBackoff := backoff.NewExponentialBackOff()
+	exponentialBackoff.InitialInterval = c.retryConfig.InitialInterval
+	exponentialBackoff.MaxInterval = c.retryConfig.MaxInterval
+
+	notify := func(err error, duration time.Duration) {
+		Logger.Debug("Retrying HTTP request",
+			"error", err,
+			"next_retry_in", duration,
+			"method", req.Method,
+			"url", req.URL.String())
+	}
+
+	resp, err = backoff.Retry(ctx, operation, backoff.WithNotify(notify), backoff.WithMaxTries(c.retryConfig.MaxRetries), backoff.WithMaxElapsedTime(c.retryConfig.MaxElapsedTime))
+	if err != nil {
+		return
+	}
+	return
+}
+
 // GetResultByUUID retrieves result using results endpoint on Detect API with
 // given UUID.
 func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Result, err error) {
@@ -310,19 +409,24 @@ func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Resul
 		return
 	}
 
-	resp, err := c.HttpClient.Do(request)
+	resp, err := c.doRequest(ctx, request, []int{http.StatusOK},
+		http.StatusTooManyRequests,    // 429
+		http.StatusBadGateway,         // 502
+		http.StatusServiceUnavailable, // 503
+		http.StatusGatewayTimeout,     // 504
+	)
 	if err != nil {
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		if e := resp.Body.Close(); e != nil {
+			Logger.Error("error closing body", slog.String("error", e.Error()))
+		}
+	}()
+
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		err = NewHTTPError(resp, string(rawBody))
 		return
 	}
 
@@ -352,19 +456,23 @@ func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result R
 		return
 	}
 
-	resp, err := c.HttpClient.Do(request)
+	resp, err := c.doRequest(ctx, request, []int{http.StatusOK},
+		http.StatusTooManyRequests,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout,
+	)
 	if err != nil {
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		if e := resp.Body.Close(); e != nil {
+			Logger.Error("error closing body", slog.String("error", e.Error()))
+		}
+	}()
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		err = NewHTTPError(resp, string(rawBody))
 		return
 	}
 
@@ -380,11 +488,16 @@ func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result R
 // SubmitFile submits a file to Detect API. The file is described by its
 // path and it's possible to provides some params to be submitted with the file.
 func (c *Client) SubmitFile(ctx context.Context, filepath string, submitOptions SubmitOptions) (uuid string, err error) {
-	file, err := os.Open(filepath)
+	file, err := os.Open(filepath) //nolint:gosec // file chosen by user
 	if err != nil {
 		return
 	}
-	defer file.Close()
+
+	defer func() {
+		if e := file.Close(); e != nil {
+			Logger.Error("error closing file", slog.String("error", e.Error()))
+		}
+	}()
 
 	if submitOptions.Filename == "" {
 		submitOptions.Filename = file.Name()
@@ -455,7 +568,9 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 		}
 	}
 
-	writer.Close()
+	if err = writer.Close(); err != nil {
+		return
+	}
 
 	// Post file to API
 	request, err := c.prepareRequest(ctx, "POST", c.getPath("submit"), body)
@@ -464,19 +579,21 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 	}
 	request.Header.Add("Content-Type", writer.FormDataContentType())
 
-	resp, err = c.HttpClient.Do(request)
+	resp, err = c.doRequest(ctx, request, []int{http.StatusOK},
+		http.StatusTooManyRequests, // 429
+		http.StatusBadGateway,      // 502
+	)
 	if err != nil {
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		if e := resp.Body.Close(); e != nil {
+			Logger.Error("error closing body", slog.String("error", e.Error()))
+		}
+	}()
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		err = NewHTTPError(resp, string(rawBody))
 		return
 	}
 
@@ -512,11 +629,15 @@ func addFormField(w *multipart.Writer, field string, value string) (err error) {
 // WaitForFile submits a file, using SubmitFile method, and try to get
 // analysis results using GetResultByUUID method.
 func (c *Client) WaitForFile(ctx context.Context, filepath string, waitOptions WaitForOptions) (result Result, err error) {
-	file, err := os.Open(filepath)
+	file, err := os.Open(filepath) //nolint:gosec // file chosen by user
 	if err != nil {
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if e := file.Close(); e != nil {
+			Logger.Error("error closing file", slog.String("error", e.Error()))
+		}
+	}()
 
 	if waitOptions.Filename == "" {
 		waitOptions.Filename = file.Name()
@@ -579,7 +700,7 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	result, err = c.waitForUUID(ctx, uuid, pullTime)
+	result, err = c.WaitForUUID(ctx, uuid, pullTime)
 	if err != nil {
 		return
 	}
@@ -599,7 +720,7 @@ func (c *Client) preGet(ctx context.Context, r io.Reader) (result Result, err er
 	return
 }
 
-func (c *Client) waitForUUID(ctx context.Context, uuid string, pullTime time.Duration) (result Result, err error) {
+func (c *Client) WaitForUUID(ctx context.Context, uuid string, pullTime time.Duration) (result Result, err error) {
 	ticker := time.NewTicker(pullTime)
 	for {
 		select {
@@ -651,19 +772,21 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 		return
 	}
 
-	resp, err := c.HttpClient.Do(request)
+	resp, err := c.doRequest(ctx, request, []int{http.StatusOK},
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout,
+	)
 	if err != nil {
 		return
 	}
-
-	defer resp.Body.Close()
+	defer func() {
+		if e := resp.Body.Close(); e != nil {
+			Logger.Error("error closing body", slog.String("error", e.Error()))
+		}
+	}()
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		err = NewHTTPError(resp, string(rawBody))
 		return
 	}
 
@@ -685,26 +808,27 @@ func (c *Client) GetProfileStatus(ctx context.Context) (status ProfileStatus, er
 		return
 	}
 
-	resp, err := c.HttpClient.Do(request)
+	resp, err := c.doRequest(ctx, request, []int{http.StatusOK, http.StatusNotFound},
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout,
+	)
 	if err != nil {
 		return
 	}
+	defer func() {
+		if e := resp.Body.Close(); e != nil {
+			Logger.Error("error closing body", slog.String("error", e.Error()))
+		}
+	}()
 
-	defer resp.Body.Close()
-	rawBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return
-	}
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		// do nothing
-	case http.StatusNotFound:
-		// the feature does not seems to be available
+	if resp.StatusCode == http.StatusNotFound {
 		err = c.generateFeatureError(ctx)
 		return
-	default:
-		err = NewHTTPError(resp, string(rawBody))
+	}
+
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return
 	}
 
@@ -724,24 +848,27 @@ func (c *Client) GetAPIVersion(ctx context.Context) (version string, err error) 
 		return
 	}
 
-	resp, err := c.HttpClient.Do(request)
+	resp, err := c.doRequest(ctx, request, []int{http.StatusOK},
+		http.StatusBadGateway,         // 502
+		http.StatusServiceUnavailable, // 503
+		http.StatusGatewayTimeout,     // 504
+	)
 	if err != nil {
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		if e := resp.Body.Close(); e != nil {
+			Logger.Error("error closing body", slog.String("error", e.Error()))
+		}
+	}()
+
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		err = NewHTTPError(resp, string(rawBody))
-		return
-	}
-
 	response := map[string]string{}
-
 	err = json.Unmarshal(rawBody, &response)
 	if err != nil {
 		err = fmt.Errorf("error unmarshalling response json, %w", err)
@@ -754,7 +881,7 @@ func (c *Client) GetAPIVersion(ctx context.Context) (version string, err error) 
 	}
 
 	version = "unknown"
-	err = fmt.Errorf("could not find detect API version in the server response")
+	err = errors.New("could not find detect API version in the server response")
 	return
 }
 
