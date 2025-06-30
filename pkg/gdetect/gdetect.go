@@ -49,7 +49,7 @@ type RetryConfig struct {
 
 func DefaultRetryConfig() RetryConfig {
 	return RetryConfig{
-		MaxRetries:      3,
+		MaxRetries:      0,
 		InitialInterval: time.Second,
 		MaxInterval:     30 * time.Second,
 		MaxElapsedTime:  2 * time.Minute,
@@ -341,10 +341,6 @@ func (c *Client) getPath(path string) string {
 }
 
 func (c *Client) doRequest(ctx context.Context, req *http.Request, wantStatus []int, retryableStatusCodes ...int) (resp *http.Response, err error) {
-	if c.retryConfig.MaxRetries == 0 {
-		return c.HttpClient.Do(req)
-	}
-
 	var bodyBytes []byte
 	if req.Body != nil {
 		var err error
@@ -378,7 +374,7 @@ func (c *Client) doRequest(ctx context.Context, req *http.Request, wantStatus []
 		}()
 		rawBody, err := io.ReadAll(resp.Body)
 		if err != nil {
-			backoff.Permanent(fmt.Errorf("error reading response body, %w", err))
+			return nil, backoff.Permanent(fmt.Errorf("error reading response body, %w", err))
 		}
 		if slices.Contains(retryableStatusCodes, resp.StatusCode) {
 			return nil, NewHTTPError(resp, string(rawBody))

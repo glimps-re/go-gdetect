@@ -13,9 +13,10 @@ func TestExecute(t *testing.T) {
 	token := "abcdef01-23456789-abcdef01-23456789-abcdef01"
 
 	type fields struct {
-		command string
-		args    string
-		flags   []string
+		addFileToArgs string
+		command       string
+		args          string
+		flags         []string
 	}
 
 	tests := []struct {
@@ -38,8 +39,8 @@ func TestExecute(t *testing.T) {
 		{
 			name: "VALID SUBMIT",
 			fields: fields{
-				command: "submit",
-				args:    "../../tests/samples/false_mirai",
+				command:       "submit",
+				addFileToArgs: "file content",
 				flags: []string{
 					"--token", token,
 				},
@@ -50,8 +51,8 @@ func TestExecute(t *testing.T) {
 		{
 			name: "VALID SUBMIT WITH PARAMS",
 			fields: fields{
-				command: "submit",
-				args:    "../../tests/samples/false_mirai",
+				command:       "submit",
+				addFileToArgs: "file content",
 				flags: []string{
 					"--token", token,
 					"--description", "this is a description",
@@ -67,7 +68,7 @@ func TestExecute(t *testing.T) {
 		{
 			name: "VALID SUBMIT DEFAULT COMMAND",
 			fields: fields{
-				args: "../../tests/samples/false_mirai",
+				addFileToArgs: "file content",
 				flags: []string{
 					"--token", token,
 				},
@@ -137,8 +138,8 @@ func TestExecute(t *testing.T) {
 		{
 			name: "VALID WAITFOR",
 			fields: fields{
-				command: "waitfor",
-				args:    "../../tests/samples/false_mirai",
+				command:       "waitfor",
+				addFileToArgs: "file content",
 				flags: []string{
 					"--token", token,
 					"--pull-time", "1",
@@ -151,8 +152,8 @@ func TestExecute(t *testing.T) {
 		{
 			name: "VALID WAITFOR WITH PARAMS",
 			fields: fields{
-				command: "waitfor",
-				args:    "../../tests/samples/false_mirai",
+				command:       "waitfor",
+				addFileToArgs: "file content",
 				flags: []string{
 					"--token", token,
 					"--description", "with token and sid",
@@ -171,8 +172,8 @@ func TestExecute(t *testing.T) {
 		{
 			name: "INVALID WAITFOR BAD FLAGS",
 			fields: fields{
-				command: "waitfor",
-				args:    "../../tests/samples/false_mirai",
+				command:       "waitfor",
+				addFileToArgs: "file content",
 				flags: []string{
 					"--token", token,
 					"--description",
@@ -184,8 +185,8 @@ func TestExecute(t *testing.T) {
 		{
 			name: "INVALID WAITFOR TIMEOUT",
 			fields: fields{
-				command: "waitfor",
-				args:    "../../tests/samples/false_mirai",
+				command:       "waitfor",
+				addFileToArgs: "file content",
 				flags: []string{
 					"--token", token,
 					"--description", "never done",
@@ -290,6 +291,19 @@ func TestExecute(t *testing.T) {
 			}
 			if tt.fields.args != "" {
 				args = append(args, tt.fields.args)
+			}
+			if tt.fields.addFileToArgs != "" {
+				f, err := os.CreateTemp(t.TempDir(), "file")
+				if err != nil {
+					t.Fatalf("could not create test file, err: %v", err)
+				}
+				if _, err = f.Write([]byte(tt.fields.addFileToArgs)); err != nil {
+					t.Fatalf("could not write to test file, err: %v", err)
+				}
+				if err = f.Close(); err != nil {
+					t.Fatalf("could not close test file, err: %v", err)
+				}
+				args = append(args, f.Name())
 			}
 			args = append(args, tt.fields.flags...)
 
