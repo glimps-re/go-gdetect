@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.5.0] - 2025-06-04
+
+* [pkg] add av_infos to result struct
+
+### Added
+
 ## [v1.4.0] - 2024-10-23
 
 ### Added

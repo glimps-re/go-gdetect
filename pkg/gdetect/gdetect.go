@@ -85,29 +85,36 @@ type Client struct {
 // Result represent typical json result from Detect API operations like get or
 // search. It maps elements from the json result to fields.
 type Result struct {
-	UUID              string            `json:"uuid"`
-	SHA256            string            `json:"sha256"`
-	SHA1              string            `json:"sha1"`
-	MD5               string            `json:"md5"`
-	SSDeep            string            `json:"ssdeep"`
-	Malware           bool              `json:"is_malware"`
-	Score             int               `json:"score"`
-	Done              bool              `json:"done"`
-	Timestamp         int64             `json:"timestamp"`
-	Errors            map[string]string `json:"errors,omitempty"`
-	Error             string            `json:"error,omitempty"`
-	FileType          string            `json:"filetype"`
-	FileSize          int64             `json:"size"`
-	Filenames         []string          `json:"filenames,omitempty"`
-	Malwares          []string          `json:"malwares,omitempty"`
-	Files             []FileResult      `json:"files,omitempty"`
-	SID               string            `json:"sid,omitempty"`
-	Comment           string            `json:"comment,omitempty"`
-	FileCount         int               `json:"file_count"`
-	Duration          int64             `json:"duration"`
-	Token             string            `json:"token,omitempty"`
-	Threats           map[string]Threat `json:"threats,omitempty"`
-	SpecialStatusCode int               `json:"special_status_code"`
+	UUID              string             `json:"uuid"`
+	SHA256            string             `json:"sha256"`
+	SHA1              string             `json:"sha1"`
+	MD5               string             `json:"md5"`
+	SSDeep            string             `json:"ssdeep"`
+	Malware           bool               `json:"is_malware"`
+	Score             int                `json:"score"`
+	Done              bool               `json:"done"`
+	Timestamp         int64              `json:"timestamp"`
+	Errors            map[string]string  `json:"errors,omitempty"`
+	Error             string             `json:"error,omitempty"`
+	FileType          string             `json:"filetype"`
+	FileSize          int64              `json:"size"`
+	Filenames         []string           `json:"filenames,omitempty"`
+	Malwares          []string           `json:"malwares,omitempty"`
+	Files             []FileResult       `json:"files,omitempty"`
+	SID               string             `json:"sid,omitempty"`
+	Comment           string             `json:"comment,omitempty"`
+	FileCount         int                `json:"file_count"`
+	Duration          int64              `json:"duration"`
+	Token             string             `json:"token,omitempty"`
+	Threats           map[string]Threat  `json:"threats,omitempty"`
+	SpecialStatusCode int                `json:"special_status_code"`
+	AVinfos           map[string]AVInfos `json:"av_infos,omitempty"`
+}
+
+type AVInfos struct {
+	LastUpdate string `json:"last_update,omitempty"`
+	AVVersion  string `json:"av_version,omitempty"`
+	DBVersion  string `json:"db_version,omitempty"`
 }
 
 // Threat part of an analysis result
