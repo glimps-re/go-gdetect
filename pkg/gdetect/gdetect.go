@@ -21,18 +21,20 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Generic gdetect client errors.
 var (
-	ErrTimeout      = fmt.Errorf("timeout")
-	ErrBadToken     = fmt.Errorf("bad token")
-	ErrNoToken      = fmt.Errorf("no token in result")
-	ErrNoSID        = fmt.Errorf("no sid in result")
-	ErrNotAvailable = fmt.Errorf("this feature is not available")
+	ErrTimeout      = errors.New("timeout")
+	ErrBadToken     = errors.New("bad token")
+	ErrNoToken      = errors.New("no token in result")
+	ErrNoSID        = errors.New("no sid in result")
+	ErrNotAvailable = errors.New("this feature is not available")
 )
 
 var Logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -42,7 +44,7 @@ type FeatureNotAvailableError struct {
 }
 
 func (e FeatureNotAvailableError) Error() string {
-	return fmt.Sprintf("feature not available, API version: %s", e.Version)
+	return "feature not available, API version: " + e.Version
 }
 
 type GDetectSubmitter interface {
@@ -58,24 +60,34 @@ type GDetectSubmitter interface {
 }
 
 type ExtendedGDetectSubmitter interface {
-	GetResultByUUID(ctx context.Context, uuid string) (result Result, err error)
-	GetResultBySHA256(ctx context.Context, sha256 string) (result Result, err error)
-	GetResults(ctx context.Context, from int, size int, tags ...string) (submissions []Submission, err error)
-	SubmitFile(ctx context.Context, filepath string, options SubmitOptions) (uuid string, err error)
-	SubmitReader(ctx context.Context, r io.Reader, options SubmitOptions) (uuid string, err error)
-	WaitForFile(ctx context.Context, filepath string, options WaitForOptions) (result Result, err error)
-	WaitForReader(ctx context.Context, r io.Reader, options WaitForOptions) (result Result, err error)
+	GDetectSubmitter
 	ExtractTokenViewURL(result *Result) (urlTokenView string, err error)
 	ExtractExpertViewURL(result *Result) (urlExpertView string, err error)
-	GetFullSubmissionByUUID(ctx context.Context, uuid string) (result interface{}, err error)
-	GetProfileStatus(ctx context.Context) (status ProfileStatus, err error)
-	GetAPIVersion(ctx context.Context) (version string, err error)
+	GetFullSubmissionByUUID(ctx context.Context, uuid string) (result any, err error)
 }
 
-var _ GDetectSubmitter = &Client{}
+type ControllerSubmitter interface {
+	Reconfigure(endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error)
+}
+
+type ControllerGDetectSubmitter interface {
+	GDetectSubmitter
+	ControllerSubmitter
+}
+
+type ControllerExtendedGdetectSubmitter interface {
+	ExtendedGDetectSubmitter
+	ControllerSubmitter
+}
+
+var (
+	_ ExtendedGDetectSubmitter           = &Client{}
+	_ ControllerExtendedGdetectSubmitter = &Client{}
+)
 
 // Client is the representation of a Detect API CLient.
 type Client struct {
+	lock       *sync.RWMutex
 	Endpoint   string
 	Token      string
 	HttpClient *http.Client
@@ -213,6 +225,7 @@ func NewClient(endpoint, token string, insecure bool, httpClient *http.Client) (
 	}
 
 	client = &Client{
+		lock:       &sync.RWMutex{},
 		Endpoint:   endpoint,
 		Token:      token,
 		HttpClient: httpClient,
@@ -220,12 +233,36 @@ func NewClient(endpoint, token string, insecure bool, httpClient *http.Client) (
 	if httpClient == nil {
 		transport := http.DefaultTransport
 		if insecure {
-			transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+			transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // optional insecure
 		}
 		client.HttpClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
 	}
 
 	return client, nil
+}
+
+func (c *Client) Reconfigure(endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.Endpoint = endpoint
+	c.Token = token
+	c.syndetect = syndetect
+	if httpClient != nil {
+		c.HttpClient = httpClient
+		return
+	}
+	transport := http.DefaultTransport
+	if insecure {
+		transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // optional insecure
+	}
+	c.HttpClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
+	return
+}
+
+func (c *Client) Do(req *http.Request) (*http.Response, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	return c.HttpClient.Do(req)
 }
 
 func checkToken(token string) (err error) {
@@ -310,12 +347,17 @@ func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Resul
 		return
 	}
 
-	resp, err := c.HttpClient.Do(request)
+	resp, err := c.Do(request)
 	if err != nil {
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			Logger.Error("cannot close response body", slog.String("error", err.Error()))
+		}
+	}()
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
@@ -352,12 +394,17 @@ func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result R
 		return
 	}
 
-	resp, err := c.HttpClient.Do(request)
+	resp, err := c.Do(request)
 	if err != nil {
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			Logger.Error("cannot close response body", slog.String("error", err.Error()))
+		}
+	}()
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
@@ -379,12 +426,17 @@ func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result R
 
 // SubmitFile submits a file to Detect API. The file is described by its
 // path and it's possible to provides some params to be submitted with the file.
-func (c *Client) SubmitFile(ctx context.Context, filepath string, submitOptions SubmitOptions) (uuid string, err error) {
-	file, err := os.Open(filepath)
+func (c *Client) SubmitFile(ctx context.Context, filePath string, submitOptions SubmitOptions) (uuid string, err error) {
+	file, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
 		return
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			Logger.Error("cannot close file", "error", err)
+		}
+	}()
 
 	if submitOptions.Filename == "" {
 		submitOptions.Filename = file.Name()
@@ -455,7 +507,10 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 		}
 	}
 
-	writer.Close()
+	err = writer.Close()
+	if err != nil {
+		return
+	}
 
 	// Post file to API
 	request, err := c.prepareRequest(ctx, "POST", c.getPath("submit"), body)
@@ -464,12 +519,17 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 	}
 	request.Header.Add("Content-Type", writer.FormDataContentType())
 
-	resp, err = c.HttpClient.Do(request)
+	resp, err = c.Do(request)
 	if err != nil {
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			Logger.Error("cannot close response body", slog.String("error", err.Error()))
+		}
+	}()
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
@@ -511,12 +571,17 @@ func addFormField(w *multipart.Writer, field string, value string) (err error) {
 
 // WaitForFile submits a file, using SubmitFile method, and try to get
 // analysis results using GetResultByUUID method.
-func (c *Client) WaitForFile(ctx context.Context, filepath string, waitOptions WaitForOptions) (result Result, err error) {
-	file, err := os.Open(filepath)
+func (c *Client) WaitForFile(ctx context.Context, filePath string, waitOptions WaitForOptions) (result Result, err error) {
+	file, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
 		return
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			Logger.Error("cannot close file", "error", err)
+		}
+	}()
 
 	if waitOptions.Filename == "" {
 		waitOptions.Filename = file.Name()
@@ -651,12 +716,17 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 		return
 	}
 
-	resp, err := c.HttpClient.Do(request)
+	resp, err := c.Do(request)
 	if err != nil {
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			Logger.Error("cannot close response body", slog.String("error", err.Error()))
+		}
+	}()
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
@@ -685,12 +755,18 @@ func (c *Client) GetProfileStatus(ctx context.Context) (status ProfileStatus, er
 		return
 	}
 
-	resp, err := c.HttpClient.Do(request)
+	resp, err := c.Do(request)
 	if err != nil {
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			Logger.Error("cannot close response body", slog.String("error", err.Error()))
+		}
+	}()
+
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
@@ -724,12 +800,18 @@ func (c *Client) GetAPIVersion(ctx context.Context) (version string, err error) 
 		return
 	}
 
-	resp, err := c.HttpClient.Do(request)
+	resp, err := c.Do(request)
 	if err != nil {
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			Logger.Error("cannot close response body", slog.String("error", err.Error()))
+		}
+	}()
+
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
@@ -754,7 +836,7 @@ func (c *Client) GetAPIVersion(ctx context.Context) (version string, err error) 
 	}
 
 	version = "unknown"
-	err = fmt.Errorf("could not find detect API version in the server response")
+	err = errors.New("could not find detect API version in the server response")
 	return
 }
 

@@ -94,7 +94,10 @@ analysis UUID and print it out.`,
 		if err != nil {
 			return
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), uuid)
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), uuid)
+		if err != nil {
+			return
+		}
 
 		return
 	},

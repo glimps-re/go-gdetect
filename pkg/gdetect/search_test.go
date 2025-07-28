@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"sync"
 	"testing"
 )
 
@@ -91,11 +92,15 @@ func TestClient_GetResults(t *testing.T) {
 						t.Errorf("handler.SubmitFile() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
 					}
 					rw.WriteHeader(tt.serverCode)
-					rw.Write([]byte(tt.serverBody))
+					_, err := rw.Write([]byte(tt.serverBody))
+					if err != nil {
+						t.Fatalf("cannot write test response: %s", err)
+					}
 				}),
 			)
 			defer s.Close()
 			c := &Client{
+				lock:       &sync.RWMutex{},
 				Endpoint:   s.URL,
 				Token:      tt.fields.Token,
 				HttpClient: http.DefaultClient,
