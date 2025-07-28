@@ -217,37 +217,70 @@ func TestExecute(t *testing.T) {
 				switch strings.TrimSpace(req.URL.Path) {
 				case "/api/lite/v2/results/1234":
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+					_, err := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+					if err != nil {
+						t.Fatalf("cannot write test response: %s", err)
+					}
 				case "/api/lite/v2/results/1234_never_done":
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"uuid":"1234", "status": true, "done": false}`))
+					_, err := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": false}`))
+					if err != nil {
+						t.Fatalf("cannot write test response: %s", err)
+					}
 				case "/api/lite/v2/submit":
 					rw.WriteHeader(http.StatusOK)
 					switch strings.TrimSpace(req.FormValue("description")) {
 					case "valid test":
-						rw.Write([]byte(`{"uuid":"1234", "status": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"1234", "status": true}`))
+						if err != nil {
+							t.Fatalf("cannot write test response: %s", err)
+						}
 					case "never done":
-						rw.Write([]byte(`{"uuid":"1234_never_done", "status": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"1234_never_done", "status": true}`))
+						if err != nil {
+							t.Fatalf("cannot write test response: %s", err)
+						}
 					case "with token and sid":
-						rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true}`))
+						if err != nil {
+							t.Fatalf("cannot write test response: %s", err)
+						}
 					default:
-						rw.Write([]byte(`{"uuid":"1234", "status": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"1234", "status": true}`))
+						if err != nil {
+							t.Fatalf("cannot write test response: %s", err)
+						}
 					}
 				case "/api/lite/v2/results/1234_token":
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true, "done": true, "token":"1234_token_sid"}`))
+					_, err := rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true, "done": true, "token":"1234_token_sid"}`))
+					if err != nil {
+						t.Fatalf("cannot write test response: %s", err)
+					}
 				case "/api/lite/v2/results/1234_token_sid":
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true, "done": true, "sid":"1234_token_sid", "token":"1234_token_sid"}`))
+					_, err := rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true, "done": true, "sid":"1234_token_sid", "token":"1234_token_sid"}`))
+					if err != nil {
+						t.Fatalf("cannot write test response: %s", err)
+					}
 				case "/api/lite/v2/search/1234_token_sid":
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true, "done": true, "sid":"1234_token_sid", "token":"1234_token_sid"}`))
+					_, err := rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true, "done": true, "sid":"1234_token_sid", "token":"1234_token_sid"}`))
+					if err != nil {
+						t.Fatalf("cannot write test response: %s", err)
+					}
 				case "/api/lite/v2/search/1234":
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+					_, err := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+					if err != nil {
+						t.Fatalf("cannot write test response: %s", err)
+					}
 				case "/api/lite/v2/status":
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`))
+					_, err := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`))
+					if err != nil {
+						t.Fatalf("cannot write test response: %s", err)
+					}
 				default:
 					t.Errorf("handler.GetResultByUUID() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 				}
