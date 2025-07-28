@@ -3,6 +3,7 @@ package gdetectmock
 import (
 	"context"
 	"io"
+	"net/http"
 
 	"github.com/glimps-re/go-gdetect/pkg/gdetect"
 )
@@ -20,6 +21,8 @@ type MockGDetectSubmitter struct {
 	GetFullSubmissionByUUIDMock func(ctx context.Context, uuid string) (result interface{}, err error)
 	GetProfileStatusMock        func(ctx context.Context) (status gdetect.ProfileStatus, err error)
 	GetAPIVersionMock           func(ctx context.Context) (version string, err error)
+
+	ReconfigureMock func(endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error)
 }
 
 func (m *MockGDetectSubmitter) GetResultByUUID(ctx context.Context, uuid string) (result gdetect.Result, err error) {
@@ -104,4 +107,11 @@ func (m *MockGDetectSubmitter) GetAPIVersion(ctx context.Context) (version strin
 		return m.GetAPIVersionMock(ctx)
 	}
 	panic("GetAPIVersion not implemented in current test")
+}
+
+func (m *MockGDetectSubmitter) Reconfigure(endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error) {
+	if m.ReconfigureMock != nil {
+		return m.ReconfigureMock(endpoint, token, insecure, syndetect, httpClient)
+	}
+	panic("Reconfigure not implemented in current test")
 }

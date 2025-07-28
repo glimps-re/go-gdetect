@@ -23,6 +23,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -63,11 +64,17 @@ func init() {
 
 	// If token is not set as an env variable it should be specified as an argument
 	if envAPIToken == "" {
-		rootCmd.MarkPersistentFlagRequired("token")
+		err := rootCmd.MarkPersistentFlagRequired("token")
+		if err != nil {
+			panic(fmt.Errorf("cannot init gdetect cli: %w", err))
+		}
 	}
 
 	// If url is not set as an env variable it should be specified as an argument
 	if envAPIURL == "" {
-		rootCmd.MarkPersistentFlagRequired("url")
+		err := rootCmd.MarkPersistentFlagRequired("url")
+		if err != nil {
+			panic(fmt.Errorf("cannot init gdetect cli: %w", err))
+		}
 	}
 }

@@ -69,7 +69,10 @@ var StatusCmd = &cobra.Command{
 			return
 		}
 
-		fmt.Fprintln(cmd.OutOrStdout(), string(bytes))
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), string(bytes))
+		if err != nil {
+			return
+		}
 
 		return nil
 	},
