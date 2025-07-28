@@ -72,7 +72,10 @@ analysis view.`,
 			return
 		}
 
-		fmt.Fprintln(cmd.OutOrStdout(), string(bytes))
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), string(bytes))
+		if err != nil {
+			return
+		}
 
 		retrieveURL, err := cmd.Flags().GetBool("retrieve-urls")
 		if err != nil {
@@ -81,16 +84,28 @@ analysis view.`,
 		if retrieveURL {
 			expertURL, errExpertViewURL := client.ExtractExpertViewURL(&result)
 			if errExpertViewURL != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Error extracting expert view url: %v\n", errExpertViewURL)
+				_, err = fmt.Fprintf(cmd.ErrOrStderr(), "Error extracting expert view url: %v\n", errExpertViewURL)
+				if err != nil {
+					return
+				}
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Expert view url: %s\n", expertURL)
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Expert view url: %s\n", expertURL)
+				if err != nil {
+					return
+				}
 			}
 
 			tokenViewURL, errTokenViewURL := client.ExtractTokenViewURL(&result)
 			if errTokenViewURL != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Error extracting token view url: %v\n", errTokenViewURL)
+				_, err = fmt.Fprintf(cmd.ErrOrStderr(), "Error extracting token view url: %v\n", errTokenViewURL)
+				if err != nil {
+					return
+				}
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Token view url: %s\n", tokenViewURL)
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Token view url: %s\n", tokenViewURL)
+				if err != nil {
+					return
+				}
 			}
 		}
 		return nil
