@@ -1,6 +1,6 @@
 # Changelog
 
-## [v1.4.1] - 2025-09-15
+## [v1.4.1-rc1] - 2025-09-15
 
 * [pkg] replace buffer by reader in waitForReader
 * upgrade go version to 1.24

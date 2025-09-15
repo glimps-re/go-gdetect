@@ -7,7 +7,6 @@
 package gdetect
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -409,56 +408,80 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 		resp     *http.Response
 	)
 
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
+	// body := &bytes.Buffer{}
+	pr, pw := io.Pipe()
+	defer func() {
+		if errClose := pr.Close(); errClose != nil {
+			Logger.Warn("failed to close pipe reader")
+		}
+	}()
 
-	// Create form-data header with given filename
-	if submitOptions.Filename == "" {
-		submitOptions.Filename = "unknown"
-	}
-	part, err = writer.CreateFormFile("file", submitOptions.Filename)
-	if err != nil {
-		return
-	}
+	writer := multipart.NewWriter(pw)
 
-	// Copy file content
-	_, err = io.Copy(part, r)
-	if err != nil {
-		return
-	}
+	go func() {
+		defer func() {
+			if errClose := pw.Close(); errClose != nil {
+				Logger.Warn(fmt.Sprintf("failed to close pipe writer, err: %s", errClose))
+			}
+		}()
 
-	// Submit file even if it exists in db
-	if submitOptions.BypassCache {
-		if err = addFormField(writer, "bypass-cache", "true"); err != nil {
+		part, err = writer.CreateFormFile("file", submitOptions.Filename)
+		if err != nil {
+			pw.CloseWithError(err)
 			return
 		}
-	}
 
-	// Add description if filled in
-	if submitOptions.Description != "" {
-		if err = addFormField(writer, "description", submitOptions.Description); err != nil {
+		// Copy file content
+		_, err = io.Copy(part, r)
+		if err != nil {
+			pw.CloseWithError(err)
 			return
 		}
-	}
 
-	// Add all tags if filled in
-	if len(submitOptions.Tags) > 0 {
-		if err = addFormField(writer, "tags", strings.Join(submitOptions.Tags, ",")); err != nil {
-			return
+		// Create form-data header with given filename
+		if submitOptions.Filename == "" {
+			submitOptions.Filename = "unknown"
 		}
-	}
 
-	// Add archive_password if filled in
-	if submitOptions.ArchivePassword != "" {
-		if err = addFormField(writer, "archive_password", submitOptions.ArchivePassword); err != nil {
-			return
+		// Submit file even if it exists in db
+		if submitOptions.BypassCache {
+			if err = addFormField(writer, "bypass-cache", "true"); err != nil {
+				pw.CloseWithError(err)
+				return
+			}
 		}
-	}
 
-	writer.Close()
+		// Add description if filled in
+		if submitOptions.Description != "" {
+			if err = addFormField(writer, "description", submitOptions.Description); err != nil {
+				pw.CloseWithError(err)
+				return
+			}
+		}
+
+		// Add all tags if filled in
+		if len(submitOptions.Tags) > 0 {
+			if err = addFormField(writer, "tags", strings.Join(submitOptions.Tags, ",")); err != nil {
+				pw.CloseWithError(err)
+				return
+			}
+		}
+
+		// Add archive_password if filled in
+		if submitOptions.ArchivePassword != "" {
+			if err = addFormField(writer, "archive_password", submitOptions.ArchivePassword); err != nil {
+				pw.CloseWithError(err)
+				return
+			}
+		}
+
+		if errClose := writer.Close(); errClose != nil {
+			pw.CloseWithError(errClose)
+		}
+	}()
 
 	// Post file to API
-	request, err := c.prepareRequest(ctx, "POST", c.getPath("submit"), body)
+	request, err := c.prepareRequest(ctx, "POST", c.getPath("submit"), pr)
 	if err != nil {
 		return
 	}
@@ -559,7 +582,7 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 		preGetCtx, preGetCancel := context.WithTimeout(ctx, timeout)
 		defer preGetCancel()
 
-		tmpFile, errCreate := os.CreateTemp(os.TempDir(), "tmp-*")
+		tmpFile, errCreate := os.CreateTemp(os.TempDir(), "tmp-file-*")
 		if errCreate != nil {
 			err = errCreate
 			return
