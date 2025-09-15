@@ -516,7 +516,11 @@ func (c *Client) WaitForFile(ctx context.Context, filepath string, waitOptions W
 	if err != nil {
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if errClose := file.Close(); errClose != nil {
+			Logger.Warn(fmt.Sprintf("failed to close input file, err: %s", errClose))
+		}
+	}()
 
 	if waitOptions.Filename == "" {
 		waitOptions.Filename = file.Name()
@@ -555,16 +559,37 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 		preGetCtx, preGetCancel := context.WithTimeout(ctx, timeout)
 		defer preGetCancel()
 
-		var buff bytes.Buffer
-		tee := io.TeeReader(r, &buff)
+		tmpFile, errCreate := os.CreateTemp(os.TempDir(), "tmp-*")
+		if errCreate != nil {
+			err = errCreate
+			return
+		}
+		defer func() {
+			if errClose := tmpFile.Close(); errClose != nil {
+				Logger.Warn(fmt.Sprintf("failed to close tmp file, err: %s", errClose))
+			}
+			if errR := os.Remove(tmpFile.Name()); errR != nil {
+				Logger.Warn(fmt.Sprintf("failed to remove tmp file, err: %s", errR))
+			}
+		}()
 
-		result, err = c.preGet(preGetCtx, tee)
+		_, err = io.Copy(tmpFile, r)
+		if err != nil {
+			return
+		}
+		if _, err = tmpFile.Seek(0, io.SeekStart); err != nil {
+			return
+		}
+
+		result, err = c.preGet(preGetCtx, tmpFile)
 		var httpErr HTTPError
 		switch {
 		case errors.As(err, &httpErr) && httpErr.Code == http.StatusNotFound:
 			// Submit file
-			r = &buff
-			uuid, err = c.SubmitReader(ctx, r, submitOptions)
+			if _, err = tmpFile.Seek(0, io.SeekStart); err != nil {
+				return
+			}
+			uuid, err = c.SubmitReader(ctx, tmpFile, submitOptions)
 			if err != nil {
 				return
 			}
