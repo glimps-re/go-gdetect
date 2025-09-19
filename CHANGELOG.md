@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.5.0-rc1] - 2025-08-04
+
+### Added
+
+* [pkg] Add interfaces to use gdetect client in a managed connector
+
 ## [v1.4.0] - 2024-10-23
 
 ### Added

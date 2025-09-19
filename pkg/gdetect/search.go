@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"strconv"
 )
 
 type results struct {
@@ -21,15 +23,15 @@ func (c *Client) GetResults(ctx context.Context, from int, size int, tags ...str
 
 	// Add request queries
 	q := request.URL.Query()
-	q.Add("from", fmt.Sprintf("%d", from))
-	q.Add("size", fmt.Sprintf("%d", size))
+	q.Add("from", strconv.Itoa(from))
+	q.Add("size", strconv.Itoa(size))
 	if len(tags) > 0 {
 		q.Add("tags", tags[0])
 	}
 
 	request.URL.RawQuery = q.Encode()
 
-	resp, err := c.HttpClient.Do(request)
+	resp, err := c.Do(request)
 	if err != nil {
 		return
 	}
@@ -38,7 +40,12 @@ func (c *Client) GetResults(ctx context.Context, from int, size int, tags ...str
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			Logger.Error("cannot close response body", slog.String("error", err.Error()))
+		}
+	}()
 
 	switch resp.StatusCode {
 	// server return a 404 status when no result is found
