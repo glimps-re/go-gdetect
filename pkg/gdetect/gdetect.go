@@ -408,7 +408,6 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 		resp     *http.Response
 	)
 
-	// body := &bytes.Buffer{}
 	pr, pw := io.Pipe()
 	defer func() {
 		if errClose := pr.Close(); errClose != nil {
@@ -549,22 +548,50 @@ func (c *Client) WaitForFile(ctx context.Context, filepath string, waitOptions W
 		waitOptions.Filename = file.Name()
 	}
 
-	return c.WaitForReader(ctx, file, waitOptions)
+	return c.waitFor(ctx, file, waitOptions,
+		func(ctx context.Context, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
+			return c.waitforWithPreGet(ctx, file, pullTime, submitOptions)
+		},
+	)
 }
 
 func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions WaitForOptions) (result Result, err error) {
-	timeout := time.Second * 180
-	if waitOptions.Timeout != 0*time.Second {
-		timeout = waitOptions.Timeout
+	return c.waitFor(ctx, r, waitOptions,
+		func(ctx context.Context, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
+			tmpFile, err := os.CreateTemp(os.TempDir(), fmt.Sprintf("gdetect-tmp-file-%s-*", waitOptions.Filename))
+			if err != nil {
+				return
+			}
+
+			defer func() {
+				if e := tmpFile.Close(); e != nil {
+					Logger.Warn(fmt.Sprintf("failed to close tmp file, err: %s", e))
+				}
+				if e := os.Remove(tmpFile.Name()); e != nil {
+					Logger.Warn(fmt.Sprintf("failed to remove tmp file, err: %s", e))
+				}
+			}()
+
+			if _, err = io.Copy(tmpFile, r); err != nil {
+				return
+			}
+			return c.waitforWithPreGet(ctx, tmpFile, pullTime, submitOptions)
+		},
+	)
+}
+
+func (c *Client) waitFor(ctx context.Context, r io.Reader, waitOptions WaitForOptions, cacheFn func(ctx context.Context, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error)) (result Result, err error) {
+	if waitOptions.Timeout == 0 {
+		waitOptions.Timeout = time.Second * 180
 	}
+	ctx, cancel := context.WithTimeout(ctx, waitOptions.Timeout)
+	defer cancel()
 
 	// Ticker to perform get every n seconds
-	pullTime := time.Second * 2
-	if waitOptions.PullTime != 0*time.Second {
-		pullTime = waitOptions.PullTime
+	if waitOptions.PullTime == 0 {
+		waitOptions.PullTime = 2 * time.Second
 	}
 
-	uuid := ""
 	submitOptions := SubmitOptions{
 		Tags:            waitOptions.Tags,
 		Description:     waitOptions.Description,
@@ -574,73 +601,47 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 	}
 	if waitOptions.BypassCache {
 		// Submit file
-		uuid, err = c.SubmitReader(ctx, r, submitOptions)
+		uuid, submitErr := c.SubmitReader(ctx, r, submitOptions)
+		if submitErr != nil {
+			err = submitErr
+			return
+		}
+		result, err = c.waitForUUID(ctx, uuid, waitOptions.PullTime)
 		if err != nil {
 			return
 		}
-	} else {
-		preGetCtx, preGetCancel := context.WithTimeout(ctx, timeout)
-		defer preGetCancel()
-
-		tmpFile, errCreate := os.CreateTemp(os.TempDir(), "tmp-file-*")
-		if errCreate != nil {
-			err = errCreate
-			return
-		}
-		defer func() {
-			if errClose := tmpFile.Close(); errClose != nil {
-				Logger.Warn(fmt.Sprintf("failed to close tmp file, err: %s", errClose))
-			}
-			if errR := os.Remove(tmpFile.Name()); errR != nil {
-				Logger.Warn(fmt.Sprintf("failed to remove tmp file, err: %s", errR))
-			}
-		}()
-
-		_, err = io.Copy(tmpFile, r)
-		if err != nil {
-			return
-		}
-		if _, err = tmpFile.Seek(0, io.SeekStart); err != nil {
-			return
-		}
-
-		result, err = c.preGet(preGetCtx, tmpFile)
-		var httpErr HTTPError
-		switch {
-		case errors.As(err, &httpErr) && httpErr.Code == http.StatusNotFound:
-			// Submit file
-			if _, err = tmpFile.Seek(0, io.SeekStart); err != nil {
-				return
-			}
-			uuid, err = c.SubmitReader(ctx, tmpFile, submitOptions)
-			if err != nil {
-				return
-			}
-		case err != nil:
-			return
-		case result.Done:
-			return
-		default:
-			uuid = result.UUID
-		}
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	result, err = c.waitForUUID(ctx, uuid, pullTime)
-	if err != nil {
 		return
 	}
-	return
+	return cacheFn(ctx, waitOptions.PullTime, submitOptions)
 }
 
-func (c *Client) preGet(ctx context.Context, r io.Reader) (result Result, err error) {
+func (c *Client) waitforWithPreGet(ctx context.Context, r io.ReadSeeker, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
 	hash := sha256.New()
 	if _, err = io.Copy(hash, r); err != nil {
 		return
 	}
+	uuid := ""
 	readerSHA256 := hex.EncodeToString(hash.Sum(nil))
 	result, err = c.GetResultBySHA256(ctx, readerSHA256)
+	httpErr := new(HTTPError)
+	switch {
+	case errors.As(err, httpErr) && httpErr.Code == http.StatusNotFound:
+		// Submit file
+		if _, err = r.Seek(0, io.SeekStart); err != nil {
+			return
+		}
+		uuid, err = c.SubmitReader(ctx, r, submitOptions)
+		if err != nil {
+			return
+		}
+	case err != nil:
+		return
+	case result.Done:
+		return
+	default:
+		uuid = result.UUID
+	}
+	result, err = c.waitForUUID(ctx, uuid, pullTime)
 	if err != nil {
 		return
 	}
