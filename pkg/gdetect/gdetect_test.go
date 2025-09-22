@@ -3,8 +3,12 @@ package gdetect
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -701,6 +705,178 @@ func TestClient_WaitForFile(t *testing.T) {
 			}
 			if !reflect.DeepEqual(gotResult, tt.wantResult) {
 				t.Errorf("Client.WaitForFile() = %+v, want %+v", gotResult, tt.wantResult)
+			}
+		})
+	}
+}
+
+func TestClient_WaitForReader(t *testing.T) {
+	type fields struct {
+		getResultsNeverDone bool
+		searchNotDone       bool
+		searchNotFound      bool
+	}
+	type args struct {
+		content     string
+		tags        []string
+		description string
+		bypassCache bool
+		timeout     time.Duration
+		pullTime    time.Duration
+	}
+	tests := []struct {
+		name       string
+		args       args
+		fields     fields
+		wantResult Result
+		wantErr    bool
+	}{
+		{
+			name: "VALID",
+			args: args{
+				content:     "test ok bypass cache",
+				timeout:     180 * time.Second,
+				pullTime:    15 * time.Millisecond,
+				bypassCache: true,
+			},
+			wantResult: Result{UUID: "1234", Done: true},
+			wantErr:    false,
+		},
+		{
+			name: "VALID WITH PREGET",
+			fields: fields{
+				searchNotDone: true,
+			},
+			args: args{
+				content:  "test ok cache found",
+				timeout:  180 * time.Second,
+				pullTime: 15 * time.Millisecond,
+			},
+			wantResult: Result{UUID: "1234", Done: true},
+			wantErr:    false,
+		},
+		{
+			name: "VALID PREGET NOT FOUND",
+			fields: fields{
+				searchNotFound: true,
+			},
+			args: args{
+				content:  "test ok not found in cache",
+				timeout:  180 * time.Second,
+				pullTime: 15 * time.Millisecond,
+			},
+			wantResult: Result{UUID: "1234", Done: true},
+			wantErr:    false,
+		},
+		{
+			name: "TIMEOUT",
+			fields: fields{
+				searchNotDone:       true,
+				getResultsNeverDone: true,
+			},
+			args: args{
+				content:     "timeout",
+				timeout:     time.Millisecond * 15,
+				bypassCache: true,
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(
+				http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+					if req.Header.Get("X-Auth-Token") != token {
+						t.Errorf("handler.WaitForReader() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
+					}
+					uri := strings.TrimSpace(req.URL.Path)
+					switch {
+					case uri == "/api/lite/v2/submit":
+						if req.Method != http.MethodPost {
+							t.Errorf("handler.WaitForReader() %v error = unexpected METHOD: %v", tt.name, req.Method)
+						}
+
+						_, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+						if err != nil {
+							t.Fatalf("handler.WaitForReader() error could not parse media type: %v", err)
+						}
+
+						boundary := params["boundary"]
+
+						mr := multipart.NewReader(req.Body, boundary)
+						content := make([]byte, 4096)
+						for {
+							part, err := mr.NextPart()
+							if err != nil {
+								t.Fatalf("handler.WaitForReader() error could not get multipart part: %v", err)
+							}
+							defer func() {
+								if e := part.Close(); e != nil {
+									Logger.Warn("could not close part", slog.String("error", e.Error()))
+								}
+							}()
+							if part.FormName() == "file" {
+								if _, e := part.Read(content); err != nil && !errors.Is(e, io.EOF) {
+									t.Fatalf("handler.WaitForReader() error could not read part: %v", err)
+								}
+								break
+							}
+						}
+						content = bytes.Trim(content, "\x00")
+						if tt.args.content != string(content) {
+							t.Fatalf("bad content, got %s, want %s", content, tt.args.content)
+						}
+						rw.Write([]byte(`{"uuid":"1234", "status": true}`))
+
+					case strings.HasPrefix(uri, "/api/lite/v2/results/"):
+						if req.Method != http.MethodGet {
+							t.Errorf("handler.WaitForReader() %v error = unexpected METHOD: %v", tt.name, req.Method)
+						}
+						switch {
+						case tt.fields.getResultsNeverDone:
+							rw.Write([]byte(`{"uuid":"1234", "status": true, "done": false}`))
+						default:
+							rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+						}
+					case strings.HasPrefix(uri, "/api/lite/v2/search/"):
+						if req.Method != http.MethodGet {
+							t.Errorf("handler.WaitForReader() %v error = unexpected METHOD: %v", tt.name, req.Method)
+						}
+						switch {
+						case tt.fields.searchNotDone:
+							rw.Write([]byte(`{"uuid":"1234", "status": true, "done": false}`))
+						case tt.fields.searchNotFound:
+							rw.WriteHeader(http.StatusNotFound)
+						default:
+							rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+
+						}
+					default:
+						t.Errorf("handler.WaitForReader() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
+					}
+				}),
+			)
+			defer s.Close()
+
+			client, err := NewClient(s.URL, token, false, nil)
+			if err != nil {
+				return
+			}
+			waitForOptions := WaitForOptions{
+				Tags:        tt.args.tags,
+				Description: tt.args.description,
+				BypassCache: tt.args.bypassCache,
+				Timeout:     tt.args.timeout,
+				PullTime:    tt.args.pullTime,
+			}
+
+			gotResult, err := client.WaitForReader(t.Context(), strings.NewReader(tt.args.content), waitForOptions)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Client.WaitForReader() error = %v, wantErr = %t", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(gotResult, tt.wantResult) {
+				t.Errorf("Client.WaitForReader() = %+v, want %+v", gotResult, tt.wantResult)
 			}
 		})
 	}
