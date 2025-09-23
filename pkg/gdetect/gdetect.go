@@ -314,7 +314,11 @@ func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Resul
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		if e := resp.Body.Close(); e != nil {
+			Logger.Warn(fmt.Sprintf("failed to close resp body, err: %s", e))
+		}
+	}()
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
@@ -558,7 +562,7 @@ func (c *Client) WaitForFile(ctx context.Context, filepath string, waitOptions W
 func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions WaitForOptions) (result Result, err error) {
 	return c.waitFor(ctx, r, waitOptions,
 		func(ctx context.Context, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
-			tmpFile, err := os.CreateTemp(os.TempDir(), fmt.Sprintf("gdetect-tmp-file-%s-*", waitOptions.Filename))
+			tmpFile, err := os.CreateTemp(os.TempDir(), "gdetect-tmp-*")
 			if err != nil {
 				return
 			}
