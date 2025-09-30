@@ -2,7 +2,10 @@ module github.com/glimps-re/go-gdetect
 
 go 1.24
 
-require github.com/spf13/cobra v1.10.1
+require (
+	github.com/coreos/go-semver v0.3.1
+	github.com/spf13/cobra v1.10.1
+)
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
