@@ -25,6 +25,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/coreos/go-semver/semver"
 )
 
 // Generic gdetect client errors.
@@ -67,7 +69,7 @@ type ExtendedGDetectSubmitter interface {
 }
 
 type ControllerSubmitter interface {
-	Reconfigure(endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error)
+	Reconfigure(ctx context.Context, endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error)
 }
 
 type ControllerGDetectSubmitter interface {
@@ -271,21 +273,39 @@ func NewClient(endpoint, token string, insecure bool, httpClient *http.Client) (
 	return client, nil
 }
 
-func (c *Client) Reconfigure(endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error) {
+func (c *Client) Reconfigure(ctx context.Context, endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.Endpoint = endpoint
 	c.Token = token
 	c.syndetect = syndetect
-	if httpClient != nil {
+	if httpClient == nil {
+		transport := http.DefaultTransport
+		if insecure {
+			transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // optional insecure
+		}
+		c.HttpClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
+	} else {
 		c.HttpClient = httpClient
+	}
+	if c.syndetect {
+		v, err := c.getAPIVersions(ctx, c.HttpClient.Do)
+		if err != nil {
+			return err
+		}
+		ver, err := semver.NewVersion(v)
+		if err != nil {
+			return err
+		}
+		verLimit := semver.New("1.1.0")
+		if ver.LessThan(*verLimit) {
+			return nil
+		}
+	}
+	_, err = c.getProfileStatus(ctx, c.HttpClient.Do)
+	if err != nil {
 		return
 	}
-	transport := http.DefaultTransport
-	if insecure {
-		transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // optional insecure
-	}
-	c.HttpClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
 	return
 }
 
@@ -308,7 +328,7 @@ func (c *Client) SetSyndetect() {
 	Logger.Warn("syndetect is a limited version of detect API, some analysis information won't be accessible.")
 }
 
-func (c *Client) prepareRequest(ctx context.Context, method string, path string, body io.Reader) (request *http.Request, err error) {
+func (c *Client) prepareRequest(ctx context.Context, method string, path string, body io.Reader, queries ...map[string]string) (request *http.Request, err error) {
 	var u url.URL
 
 	urlTmp, err := url.Parse(c.Endpoint)
@@ -319,6 +339,15 @@ func (c *Client) prepareRequest(ctx context.Context, method string, path string,
 	u.Host = urlTmp.Host
 	u.Scheme = urlTmp.Scheme
 	u.Path = path
+
+	if len(queries) > 0 {
+		q := u.Query()
+		for k, v := range queries[0] {
+			q.Set(k, v)
+		}
+		u.RawQuery = q.Encode()
+	}
+
 	request, err = http.NewRequestWithContext(ctx, method, u.String(), body)
 	if c.Token != "" {
 		request.Header.Add("X-Auth-Token", c.Token)
@@ -349,11 +378,13 @@ var (
 		"results": "/api/lite/v2/results/",
 		"search":  "/api/lite/v2/search/",
 		"submit":  "/api/lite/v2/submit",
+		"status":  "/api/lite/v2/status",
 	}
 	SyndetectPaths = map[string]string{
 		"results": "/api/v1/results/",
 		"search":  "/api/v1/results/",
 		"submit":  "/api/v1/submit",
+		"status":  "/api/v1/status",
 	}
 )
 
@@ -462,7 +493,7 @@ func (c *Client) SubmitFile(ctx context.Context, filePath string, submitOptions 
 	defer func() {
 		err := file.Close()
 		if err != nil {
-			Logger.Error("cannot close file", "error", err)
+			Logger.Warn("cannot close file", slog.String("error", err.Error()))
 		}
 	}()
 
@@ -822,22 +853,24 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 }
 
 func (c *Client) GetProfileStatus(ctx context.Context) (status ProfileStatus, err error) {
-	if c.syndetect {
-		return status, ErrNotAvailable
-	}
-	request, err := c.prepareRequest(ctx, "GET", "/api/lite/v2/status", nil)
+	return c.getProfileStatus(ctx, c.Do)
+}
+
+func (c *Client) getProfileStatus(ctx context.Context, do func(req *http.Request) (*http.Response, error)) (status ProfileStatus, err error) {
+	request, err := c.prepareRequest(ctx, "GET", c.getPath("status"), nil)
 	if err != nil {
 		return
 	}
 
-	resp, err := c.Do(request)
+	resp, err := do(request)
 	if err != nil {
 		return
 	}
 
 	defer func() {
-		if e := resp.Body.Close(); e != nil {
-			Logger.Warn("cannot close response body", slog.String("error", e.Error()))
+		err := resp.Body.Close()
+		if err != nil {
+			Logger.Warn("cannot close response body", slog.String("error", err.Error()))
 		}
 	}()
 
@@ -869,12 +902,16 @@ func (c *Client) GetProfileStatus(ctx context.Context) (status ProfileStatus, er
 
 // GetAPIVersion retrieves detect API version
 func (c *Client) GetAPIVersion(ctx context.Context) (version string, err error) {
+	return c.getAPIVersions(ctx, c.Do)
+}
+
+func (c *Client) getAPIVersions(ctx context.Context, do func(*http.Request) (*http.Response, error)) (version string, err error) {
 	request, err := c.prepareRequest(ctx, "GET", "/api/versions", nil)
 	if err != nil {
 		return
 	}
 
-	resp, err := c.Do(request)
+	resp, err := do(request)
 	if err != nil {
 		return
 	}
@@ -894,7 +931,6 @@ func (c *Client) GetAPIVersion(ctx context.Context) (version string, err error) 
 		err = NewHTTPError(resp, string(rawBody))
 		return
 	}
-
 	response := map[string]string{}
 
 	err = json.Unmarshal(rawBody, &response)
@@ -906,6 +942,12 @@ func (c *Client) GetAPIVersion(ctx context.Context) (version string, err error) 
 	if v, ok := response["/api/lite/v2"]; ok {
 		version = v
 		return
+	}
+	if c.syndetect {
+		if v, ok := response["v1"]; ok {
+			version = v
+			return
+		}
 	}
 
 	version = "unknown"
@@ -929,35 +971,17 @@ func (c *Client) ExportResult(ctx context.Context, uuid string, options ExportOp
 	if c.syndetect {
 		return nil, ErrNotAvailable
 	}
-
-	// Build the URL with query parameters
-	var u url.URL
-	urlTmp, err := url.Parse(c.Endpoint)
-	if err != nil {
-		return
+	queries := map[string]string{
+		"format": string(options.Format),
+		"layout": string(options.Layout),
 	}
-
-	u.Host = urlTmp.Host
-	u.Scheme = urlTmp.Scheme
-	u.Path = "/api/lite/v2/results/" + uuid + "/export"
-
-	// Add query parameters
-	q := u.Query()
-	q.Set("format", string(options.Format))
-	q.Set("layout", string(options.Layout))
 	if options.Full {
-		q.Set("full", "true")
+		queries["full"] = "true"
 	}
-	u.RawQuery = q.Encode()
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	request, err := c.prepareRequest(ctx, "GET", "/api/lite/v2/results/"+uuid+"/export", nil, queries)
 	if err != nil {
 		return
 	}
-	if c.Token != "" {
-		request.Header.Add("X-Auth-Token", c.Token)
-	}
-
 	resp, err := c.HttpClient.Do(request)
 	if err != nil {
 		return

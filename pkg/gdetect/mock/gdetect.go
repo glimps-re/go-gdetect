@@ -23,8 +23,13 @@ type MockGDetectSubmitter struct {
 	GetAPIVersionMock           func(ctx context.Context) (version string, err error)
 	ExportResultMock            func(ctx context.Context, uuid string, options gdetect.ExportOptions) (data []byte, err error)
 
-	ReconfigureMock func(endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error)
+	ReconfigureMock func(ctx context.Context, endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error)
 }
+
+var (
+	_ gdetect.ExtendedGDetectSubmitter           = &MockGDetectSubmitter{}
+	_ gdetect.ControllerExtendedGdetectSubmitter = &MockGDetectSubmitter{}
+)
 
 func (m *MockGDetectSubmitter) GetResultByUUID(ctx context.Context, uuid string) (result gdetect.Result, err error) {
 	if m.GetResultByUUIDMock != nil {
@@ -117,9 +122,9 @@ func (m *MockGDetectSubmitter) ExportResult(ctx context.Context, uuid string, op
 	panic("ExportResult not implemented in current test")
 }
 
-func (m *MockGDetectSubmitter) Reconfigure(endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error) {
+func (m *MockGDetectSubmitter) Reconfigure(ctx context.Context, endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error) {
 	if m.ReconfigureMock != nil {
-		return m.ReconfigureMock(endpoint, token, insecure, syndetect, httpClient)
+		return m.ReconfigureMock(ctx, endpoint, token, insecure, syndetect, httpClient)
 	}
 	panic("Reconfigure not implemented in current test")
 }

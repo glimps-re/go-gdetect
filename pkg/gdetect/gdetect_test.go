@@ -1429,14 +1429,21 @@ func TestClient_GetProfileStatus(t *testing.T) {
 		fields     fields
 	}{
 		{
-			name: "ERROR SYNDETECT",
+			name: "VALID SYNDETECT",
 			args: args{
 				ctx: context.Background(),
 			},
 			fields: fields{
 				setSyndetectClient: true,
 			},
-			wantErr: true,
+			wantErr: false,
+			wantResult: ProfileStatus{
+				MalwareThreshold:          1000,
+				DailyQuota:                1000,
+				AvailableDailyQuota:       997,
+				Cache:                     true,
+				EstimatedAnalysisDuration: 202,
+			},
 		},
 		{
 			name: "VALID",
@@ -1717,21 +1724,14 @@ func TestClient_GetAPIVersion(t *testing.T) {
 	}
 }
 
-type ErrorReader struct {
-	err error
-}
-
-func (e ErrorReader) Read(p []byte) (n int, err error) {
-	return 0, e.err
-}
-
 func TestClient_Reconfigure(t *testing.T) {
 	type args struct {
-		endpoint   string
-		token      string
-		insecure   bool
-		syndetect  bool
-		httpClient *http.Client
+		token                    string
+		insecure                 bool
+		old_syndetect            bool
+		new_syndetect            bool
+		httpClient               *http.Client
+		setGetProfileStatusError bool
 	}
 	tests := []struct {
 		name       string
@@ -1740,30 +1740,52 @@ func TestClient_Reconfigure(t *testing.T) {
 		wantErr    bool
 	}{
 		{
+			name: "valid syndetect 1.0.0",
+			args: args{
+				token:         token,
+				insecure:      false,
+				httpClient:    nil,
+				old_syndetect: true,
+			},
+			wantErr: false,
+			wantClient: &Client{
+				Token: token,
+			},
+		},
+		{
+			name: "valid syndetect > 1.0.0",
+			args: args{
+				token:         token,
+				insecure:      false,
+				httpClient:    nil,
+				new_syndetect: true,
+			},
+			wantErr: false,
+			wantClient: &Client{
+				Token: token,
+			},
+		},
+		{
 			name: "valid",
 			args: args{
-				endpoint:   "http://glimps/detect",
-				token:      "other",
+				token:      token,
 				insecure:   false,
 				httpClient: nil,
 			},
 			wantErr: false,
 			wantClient: &Client{
-				Endpoint: "http://glimps/detect",
-				Token:    "other",
+				Token: token,
 			},
 		},
 		{
 			name: "valid default http client",
 			args: args{
-				endpoint:   "http://glimps/detect",
 				token:      token,
 				insecure:   false,
 				httpClient: http.DefaultClient,
 			},
 			wantErr: false,
 			wantClient: &Client{
-				Endpoint:   "http://glimps/detect",
 				Token:      token,
 				HttpClient: http.DefaultClient,
 			},
@@ -1771,30 +1793,81 @@ func TestClient_Reconfigure(t *testing.T) {
 		{
 			name: "valid custom http client",
 			args: args{
-				endpoint:   "http://glimps/detect",
 				token:      token,
 				insecure:   false,
 				httpClient: &http.Client{Timeout: 2 * time.Second},
 			},
 			wantErr: false,
 			wantClient: &Client{
-				Endpoint:   "http://glimps/detect",
 				Token:      token,
 				HttpClient: &http.Client{Timeout: 2 * time.Second},
+			},
+		},
+		{
+			name: "get status error",
+			args: args{
+				token:                    token,
+				insecure:                 false,
+				httpClient:               nil,
+				setGetProfileStatusError: true,
+			},
+			wantErr: true,
+			wantClient: &Client{
+				Token: token,
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(
+				http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+					if req.Header.Get("X-Auth-Token") != token {
+						t.Errorf("handler.GetProfileStatus() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
+					}
+					if req.Method != http.MethodGet {
+						t.Errorf("handler.GetProfileStatus() %v error = unexpected METHOD: %v", tt.name, req.Method)
+					}
+					switch {
+					case tt.args.setGetProfileStatusError:
+						rw.WriteHeader(http.StatusBadRequest)
+						rw.Header().Add("Content-Type", "application/json")
+					case tt.args.old_syndetect && req.URL.Path == "/api/versions":
+						rw.WriteHeader(http.StatusOK)
+						rw.Header().Add("Content-Type", "application/json")
+						_, err := rw.Write([]byte(`{"v1":"1.0.0"}`))
+						if err != nil {
+							t.Fatalf("cannot write test response : %s", err)
+						}
+					case tt.args.new_syndetect && req.URL.Path == "/api/versions":
+						rw.WriteHeader(http.StatusOK)
+						rw.Header().Add("Content-Type", "application/json")
+						_, err := rw.Write([]byte(`{"v1":"1.1.0"}`))
+						if err != nil {
+							t.Fatalf("cannot write test response : %s", err)
+						}
+
+					default:
+						rw.WriteHeader(http.StatusOK)
+						_, err := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`))
+						if err != nil {
+							t.Fatalf("cannot write test response : %s", err)
+						}
+					}
+				}),
+			)
 			gotClient, err := NewClient("http://orig/detect", token, false, nil)
 			if err != nil {
 				t.Fatalf("NewClient() error on test init : %s", err)
 			}
-			err = gotClient.Reconfigure(tt.args.endpoint, tt.args.token, tt.args.insecure, tt.args.syndetect, tt.args.httpClient)
+			err = gotClient.Reconfigure(t.Context(), s.URL, tt.args.token, tt.args.insecure, tt.args.old_syndetect, tt.args.httpClient)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("client.Reconfigure() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantClient != nil {
+				if strings.Contains(gotClient.Endpoint, "orig") {
+					t.Errorf("NewClient() endpoint si not update, got %s want %s", gotClient.Endpoint, s.URL)
+				}
+				tt.wantClient.Endpoint = s.URL
 				if !compareClients(gotClient, tt.wantClient) {
 					t.Errorf("NewClient() = %v, want %v", gotClient, tt.wantClient)
 				}
@@ -2078,4 +2151,12 @@ func TestClient_ExportResult(t *testing.T) {
 			}
 		})
 	}
+}
+
+type ErrorReader struct {
+	err error
+}
+
+func (e ErrorReader) Read(p []byte) (n int, err error) {
+	return 0, e.err
 }
