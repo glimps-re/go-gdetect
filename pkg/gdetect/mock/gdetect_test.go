@@ -535,7 +535,7 @@ func TestExportResult(t *testing.T) {
 func TestReconfigure(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		mock := &MockGDetectSubmitter{
-			ReconfigureMock: func(endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) error {
+			ReconfigureMock: func(ctx context.Context, endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) error {
 				if endpoint != "https://new-endpoint.com" {
 					t.Errorf("Expected endpoint 'https://new-endpoint.com', got '%s'", endpoint)
 				}
@@ -552,7 +552,7 @@ func TestReconfigure(t *testing.T) {
 			},
 		}
 
-		err := mock.Reconfigure("https://new-endpoint.com", "new-token", false, false, nil)
+		err := mock.Reconfigure(t.Context(), "https://new-endpoint.com", "new-token", false, false, nil)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -566,6 +566,6 @@ func TestReconfigure(t *testing.T) {
 		}()
 
 		mock := &MockGDetectSubmitter{}
-		_ = mock.Reconfigure("endpoint", "token", false, false, nil)
+		_ = mock.Reconfigure(t.Context(), "endpoint", "token", false, false, nil)
 	})
 }
