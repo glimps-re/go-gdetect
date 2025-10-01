@@ -40,19 +40,40 @@ Usage:
 
 Available Commands:
   completion  Generate the autocompletion script for the specified shell
+  export      Export result by its uuid
   get         Get a file by its uuid
   help        Help about any command
   search      Search a previous analysis
+  status      Get profile status
   submit      Submit a file to gdetect api
   waitfor     Submit a file to gdetect api and wait for results
 
 Flags:
   -h, --help           help for go-gdetect
       --insecure       bypass HTTPS check
+      --syndetect      use syndetect API (warning: it's subset of detect capabilities)
       --token string   token to API
       --url string     url to API
 
 Use "go-gdetect [command] --help" for more information about a command.
+```
+
+#### Export command
+
+The `export` command allows you to export analysis results in various formats:
+
+```bash
+# Export to PDF in English
+./go-gdetect export <UUID> --format pdf --layout en
+
+# Export full analysis to JSON in French, save to file
+./go-gdetect export <UUID> --format json --layout fr --full --output report.json
+
+# Export to MISP format (prints to stdout)
+./go-gdetect export <UUID> --format misp --layout en
+
+# Available formats: misp, stix, json, pdf, markdown, csv
+# Available layouts: fr, en
 ```
 
 ### As a go library
@@ -69,20 +90,35 @@ package main
 import (
  "context"
  "fmt"
+ "os"
  "github.com/glimps-re/go-gdetect/pkg/gdetect"
 )
 
 func main() {
- client, err := gdetect.NewClient("https://my.gdetect.service.tld", "abcdef01-23456789-abcdef01-23456789-abcdef01", false)
+ client, err := gdetect.NewClient("https://my.gdetect.service.tld", "abcdef01-23456789-abcdef01-23456789-abcdef01", false, nil)
  if err != nil {
   return
  }
 
+ // Get analysis result
  result, err := client.GetResultByUUID(context.Background(), "1234")
  if err != nil {
   return
  }
  fmt.Print(result.SHA256)
+
+ // Export analysis to PDF
+ exportOptions := gdetect.ExportOptions{
+  Format: gdetect.ExportFormatPDF,
+  Layout: gdetect.ExportLayoutEN,
+  Full:   false,
+ }
+ data, err := client.ExportResult(context.Background(), "1234", exportOptions)
+ if err != nil {
+  return
+ }
+ // Save to file
+ os.WriteFile("report.pdf", data, 0644)
 }
 
 ```

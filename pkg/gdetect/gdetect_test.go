@@ -1788,3 +1788,280 @@ func TestClient_Reconfigure(t *testing.T) {
 		})
 	}
 }
+
+func TestClient_ExportResult(t *testing.T) {
+	type fields struct {
+		setSyndetect bool
+	}
+	type args struct {
+		ctx     context.Context
+		uuid    string
+		options ExportOptions
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		args     args
+		wantData []byte
+		wantErr  bool
+		timeout  time.Duration
+	}{
+		{
+			name: "VALID PDF EXPORT",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_pdf",
+				options: ExportOptions{
+					Format: ExportFormatPDF,
+					Layout: ExportLayoutEN,
+					Full:   false,
+				},
+			},
+			wantErr:  false,
+			wantData: []byte("%PDF-1.3\n"),
+		},
+		{
+			name: "VALID JSON EXPORT FULL",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_json_full",
+				options: ExportOptions{
+					Format: ExportFormatJSON,
+					Layout: ExportLayoutFR,
+					Full:   true,
+				},
+			},
+			wantErr:  false,
+			wantData: []byte(`{"verdict":"malicious","score":2800}`),
+		},
+		{
+			name: "VALID MISP EXPORT",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_misp",
+				options: ExportOptions{
+					Format: ExportFormatMISP,
+					Layout: ExportLayoutEN,
+					Full:   false,
+				},
+			},
+			wantErr:  false,
+			wantData: []byte(`{"Event":{"uuid":"test"}}`),
+		},
+		{
+			name: "VALID STIX EXPORT",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_stix",
+				options: ExportOptions{
+					Format: ExportFormatSTIX,
+					Layout: ExportLayoutEN,
+					Full:   false,
+				},
+			},
+			wantErr:  false,
+			wantData: []byte(`{"type":"bundle"}`),
+		},
+		{
+			name: "VALID MARKDOWN EXPORT",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_markdown",
+				options: ExportOptions{
+					Format: ExportFormatMarkdown,
+					Layout: ExportLayoutEN,
+					Full:   false,
+				},
+			},
+			wantErr:  false,
+			wantData: []byte("# GMalware submission report\n"),
+		},
+		{
+			name: "VALID CSV EXPORT",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_csv",
+				options: ExportOptions{
+					Format: ExportFormatCSV,
+					Layout: ExportLayoutEN,
+					Full:   false,
+				},
+			},
+			wantErr:  false,
+			wantData: []byte("name,sha256,size\n"),
+		},
+		{
+			name: "ERROR SYNDETECT",
+			fields: fields{
+				setSyndetect: true,
+			},
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_syndetect",
+				options: ExportOptions{
+					Format: ExportFormatJSON,
+					Layout: ExportLayoutEN,
+					Full:   false,
+				},
+			},
+			wantErr:  true,
+			wantData: nil,
+		},
+		{
+			name: "NOT FOUND",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_not_found",
+				options: ExportOptions{
+					Format: ExportFormatJSON,
+					Layout: ExportLayoutEN,
+					Full:   false,
+				},
+			},
+			wantErr:  true,
+			wantData: nil,
+		},
+		{
+			name: "FORBIDDEN",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_forbidden",
+				options: ExportOptions{
+					Format: ExportFormatJSON,
+					Layout: ExportLayoutEN,
+					Full:   false,
+				},
+			},
+			wantErr:  true,
+			wantData: nil,
+		},
+		{
+			name: "TIMEOUT",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_timeout",
+				options: ExportOptions{
+					Format: ExportFormatJSON,
+					Layout: ExportLayoutEN,
+					Full:   false,
+				},
+			},
+			wantErr:  true,
+			timeout:  5 * time.Millisecond,
+			wantData: nil,
+		},
+		{
+			name: "BAD REQUEST",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "1234_bad_request",
+				options: ExportOptions{
+					Format: ExportFormatJSON,
+					Layout: ExportLayoutEN,
+					Full:   false,
+				},
+			},
+			wantErr:  true,
+			wantData: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(
+				http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+					if req.Header.Get("X-Auth-Token") != token {
+						t.Errorf("handler.ExportResult() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
+					}
+					if req.Method != "GET" {
+						t.Errorf("handler.ExportResult() %v error = unexpected METHOD: %v", tt.name, req.Method)
+					}
+
+					// Parse query parameters
+					query := req.URL.Query()
+					format := query.Get("format")
+					layout := query.Get("layout")
+					full := query.Get("full")
+
+					switch {
+					case strings.Contains(req.URL.Path, "1234_pdf"):
+						if format != "pdf" || layout != "en" {
+							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
+						}
+						rw.WriteHeader(http.StatusOK)
+						rw.Write([]byte("%PDF-1.3\n"))
+					case strings.Contains(req.URL.Path, "1234_json_full"):
+						if format != "json" || layout != "fr" || full != "true" {
+							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
+						}
+						rw.WriteHeader(http.StatusOK)
+						rw.Write([]byte(`{"verdict":"malicious","score":2800}`))
+					case strings.Contains(req.URL.Path, "1234_misp"):
+						if format != "misp" || layout != "en" {
+							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
+						}
+						rw.WriteHeader(http.StatusOK)
+						rw.Write([]byte(`{"Event":{"uuid":"test"}}`))
+					case strings.Contains(req.URL.Path, "1234_stix"):
+						if format != "stix" {
+							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
+						}
+						rw.WriteHeader(http.StatusOK)
+						rw.Write([]byte(`{"type":"bundle"}`))
+					case strings.Contains(req.URL.Path, "1234_markdown"):
+						if format != "markdown" {
+							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
+						}
+						rw.WriteHeader(http.StatusOK)
+						rw.Write([]byte("# GMalware submission report\n"))
+					case strings.Contains(req.URL.Path, "1234_csv"):
+						if format != "csv" {
+							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
+						}
+						rw.WriteHeader(http.StatusOK)
+						rw.Write([]byte("name,sha256,size\n"))
+					case strings.Contains(req.URL.Path, "1234_timeout"):
+						time.Sleep(15 * time.Millisecond)
+						rw.WriteHeader(http.StatusOK)
+						rw.Write([]byte(`{"verdict":"malicious"}`))
+					case strings.Contains(req.URL.Path, "1234_not_found"):
+						rw.WriteHeader(http.StatusNotFound)
+						rw.Write([]byte(`{"status":false,"error":"not found"}`))
+					case strings.Contains(req.URL.Path, "1234_forbidden"):
+						rw.WriteHeader(http.StatusForbidden)
+						rw.Write([]byte(`{"status":false,"error":"forbidden"}`))
+					case strings.Contains(req.URL.Path, "1234_bad_request"):
+						rw.WriteHeader(http.StatusBadRequest)
+						rw.Write([]byte(`{"status":false,"error":"bad request"}`))
+					default:
+						t.Errorf("handler.ExportResult() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
+					}
+				}),
+			)
+			defer s.Close()
+
+			client, err := NewClient(s.URL, token, false, nil)
+			if err != nil {
+				return
+			}
+
+			if tt.fields.setSyndetect {
+				client.SetSyndetect()
+			}
+
+			if tt.timeout != 0 {
+				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
+				defer cancel()
+				tt.args.ctx = ctx
+			}
+
+			gotData, err := client.ExportResult(tt.args.ctx, tt.args.uuid, tt.args.options)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Client.ExportResult() error = %v, wantErr = %t", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && !reflect.DeepEqual(gotData, tt.wantData) {
+				t.Errorf("Client.ExportResult() = %v, want %v", string(gotData), string(tt.wantData))
+			}
+		})
+	}
+}

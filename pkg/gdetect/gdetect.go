@@ -56,6 +56,7 @@ type GDetectSubmitter interface {
 	WaitForReader(ctx context.Context, r io.Reader, options WaitForOptions) (result Result, err error)
 	GetProfileStatus(ctx context.Context) (status ProfileStatus, err error)
 	GetAPIVersion(ctx context.Context) (version string, err error)
+	ExportResult(ctx context.Context, uuid string, options ExportOptions) (data []byte, err error)
 }
 
 type ExtendedGDetectSubmitter interface {
@@ -192,6 +193,36 @@ type WaitForOptions struct {
 	Timeout         time.Duration
 	PullTime        time.Duration
 	Filename        string
+}
+
+// ExportFormat represents the export format type
+type ExportFormat string
+
+const (
+	ExportFormatMISP     ExportFormat = "misp"
+	ExportFormatSTIX     ExportFormat = "stix"
+	ExportFormatJSON     ExportFormat = "json"
+	ExportFormatPDF      ExportFormat = "pdf"
+	ExportFormatMarkdown ExportFormat = "markdown"
+	ExportFormatCSV      ExportFormat = "csv"
+)
+
+// ExportLayout represents the report language layout
+type ExportLayout string
+
+const (
+	ExportLayoutFR ExportLayout = "fr"
+	ExportLayoutEN ExportLayout = "en"
+)
+
+// Options for ExportResult method
+type ExportOptions struct {
+	// Format defines the export's format: misp, stix, json, pdf, markdown or csv
+	Format ExportFormat
+	// Full defines if export must be full analysis or summarized
+	Full bool
+	// Layout defines the report's language layout: fr or en
+	Layout ExportLayout
 }
 
 // ProfileStatus contains information about profile status
@@ -617,6 +648,13 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 				return
 			}
 
+			// Set secure permissions (owner read/write only)
+			if err = tmpFile.Chmod(0o600); err != nil {
+				_ = tmpFile.Close()
+				_ = os.Remove(tmpFile.Name())
+				return
+			}
+
 			defer func() {
 				if e := tmpFile.Close(); e != nil {
 					Logger.Warn(fmt.Sprintf("failed to close tmp file, err: %s", e))
@@ -883,4 +921,58 @@ func (c *Client) generateFeatureError(ctx context.Context) (err error) {
 		return
 	}
 	return e
+}
+
+// ExportResult exports a specific analysis result by UUID in the specified format.
+// The returned data is the raw file content (PDF, JSON, CSV, etc.) depending on the format.
+func (c *Client) ExportResult(ctx context.Context, uuid string, options ExportOptions) (data []byte, err error) {
+	if c.syndetect {
+		return nil, ErrNotAvailable
+	}
+
+	// Build the URL with query parameters
+	var u url.URL
+	urlTmp, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return
+	}
+
+	u.Host = urlTmp.Host
+	u.Scheme = urlTmp.Scheme
+	u.Path = "/api/lite/v2/results/" + uuid + "/export"
+
+	// Add query parameters
+	q := u.Query()
+	q.Set("format", string(options.Format))
+	q.Set("layout", string(options.Layout))
+	if options.Full {
+		q.Set("full", "true")
+	}
+	u.RawQuery = q.Encode()
+
+	request, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	if err != nil {
+		return
+	}
+	if c.Token != "" {
+		request.Header.Add("X-Auth-Token", c.Token)
+	}
+
+	resp, err := c.HttpClient.Do(request)
+	if err != nil {
+		return
+	}
+
+	defer resp.Body.Close()
+	data, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		err = NewHTTPError(resp, string(data))
+		return
+	}
+
+	return
 }
