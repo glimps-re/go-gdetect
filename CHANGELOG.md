@@ -1,12 +1,13 @@
 # Changelog
 
-## [v1.5.0] - 2025-09-25
+## [v1.5.0] - 2025-10-01
 
 ### Added
 
+* add export result capability
 * [pkg] Add interfaces to use gdetect client in a managed connector
 
-## [v1.4.1] - 2025-09-25
+## [v1.4.1] - 2025-09-22
 
 * [pkg] replace buffer by reader in waitForReader
 * upgrade go version to 1.24
