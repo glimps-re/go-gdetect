@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -70,7 +71,7 @@ The export can be full analysis or summarized.`,
 			return
 		}
 		if format == "" {
-			return fmt.Errorf("format is required")
+			return errors.New("format is required")
 		}
 
 		layout, err := cmd.Flags().GetString("layout")
@@ -78,7 +79,7 @@ The export can be full analysis or summarized.`,
 			return
 		}
 		if layout == "" {
-			return fmt.Errorf("layout is required")
+			return errors.New("layout is required")
 		}
 
 		full, err := cmd.Flags().GetBool("full")
@@ -104,11 +105,11 @@ The export can be full analysis or summarized.`,
 
 		if output != "" {
 			// Write to file
-			err = os.WriteFile(output, data, 0644)
+			err = os.WriteFile(output, data, 0o600)
 			if err != nil {
 				return fmt.Errorf("failed to write output file: %w", err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Export saved to: %s\n", output)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Export saved to: %s\n", output)
 		} else {
 			// Write to stdout
 			_, err = cmd.OutOrStdout().Write(data)
@@ -127,6 +128,6 @@ func init() {
 	ExportCmd.Flags().String("layout", "", "Report language layout: fr or en (required)")
 	ExportCmd.Flags().Bool("full", false, "Export full analysis instead of summarized")
 	ExportCmd.Flags().String("output", "", "Output file path (if not specified, prints to stdout)")
-	ExportCmd.MarkFlagRequired("format")
-	ExportCmd.MarkFlagRequired("layout")
+	_ = ExportCmd.MarkFlagRequired("format")
+	_ = ExportCmd.MarkFlagRequired("layout")
 }
