@@ -21,6 +21,7 @@ type MockGDetectSubmitter struct {
 	GetFullSubmissionByUUIDMock func(ctx context.Context, uuid string) (result interface{}, err error)
 	GetProfileStatusMock        func(ctx context.Context) (status gdetect.ProfileStatus, err error)
 	GetAPIVersionMock           func(ctx context.Context) (version string, err error)
+	ExportResultMock            func(ctx context.Context, uuid string, options gdetect.ExportOptions) (data []byte, err error)
 
 	ReconfigureMock func(endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error)
 }
@@ -107,6 +108,13 @@ func (m *MockGDetectSubmitter) GetAPIVersion(ctx context.Context) (version strin
 		return m.GetAPIVersionMock(ctx)
 	}
 	panic("GetAPIVersion not implemented in current test")
+}
+
+func (m *MockGDetectSubmitter) ExportResult(ctx context.Context, uuid string, options gdetect.ExportOptions) (data []byte, err error) {
+	if m.ExportResultMock != nil {
+		return m.ExportResultMock(ctx, uuid, options)
+	}
+	panic("ExportResult not implemented in current test")
 }
 
 func (m *MockGDetectSubmitter) Reconfigure(endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error) {
