@@ -191,50 +191,50 @@ func TestExportCmd(t *testing.T) {
 						t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 					}
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte("%PDF-1.3\n"))
+					_, _ = rw.Write([]byte("%PDF-1.3\n"))
 				case strings.Contains(req.URL.Path, "1234_json"):
 					if format != "json" || layout != "fr" {
 						t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 					}
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"verdict":"malicious","score":2800}`))
+					_, _ = rw.Write([]byte(`{"verdict":"malicious","score":2800}`))
 				case strings.Contains(req.URL.Path, "1234_misp"):
 					if format != "misp" || layout != "en" {
 						t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 					}
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"Event":{"uuid":"test"}}`))
+					_, _ = rw.Write([]byte(`{"Event":{"uuid":"test"}}`))
 				case strings.Contains(req.URL.Path, "1234_stix"):
 					if format != "stix" {
 						t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 					}
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte(`{"type":"bundle"}`))
+					_, _ = rw.Write([]byte(`{"type":"bundle"}`))
 				case strings.Contains(req.URL.Path, "1234_markdown"):
 					if format != "markdown" {
 						t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 					}
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte("# GMalware submission report\n"))
+					_, _ = rw.Write([]byte("# GMalware submission report\n"))
 				case strings.Contains(req.URL.Path, "1234_csv"):
 					if format != "csv" {
 						t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 					}
 					rw.WriteHeader(http.StatusOK)
-					rw.Write([]byte("name,sha256,size\n"))
+					_, _ = rw.Write([]byte("name,sha256,size\n"))
 				case strings.Contains(req.URL.Path, "1234_not_found"):
 					rw.WriteHeader(http.StatusNotFound)
-					rw.Write([]byte(`{"status":false,"error":"not found"}`))
+					_, _ = rw.Write([]byte(`{"status":false,"error":"not found"}`))
 				case strings.Contains(req.URL.Path, "1234_forbidden"):
 					rw.WriteHeader(http.StatusForbidden)
-					rw.Write([]byte(`{"status":false,"error":"forbidden"}`))
+					_, _ = rw.Write([]byte(`{"status":false,"error":"forbidden"}`))
 				case strings.Contains(req.URL.Path, "1234_bad_request"):
 					rw.WriteHeader(http.StatusBadRequest)
-					rw.Write([]byte(`{"status":false,"error":"bad request"}`))
+					_, _ = rw.Write([]byte(`{"status":false,"error":"bad request"}`))
 				default:
 					// Don't error for requests we don't handle - they might be validation errors
 					rw.WriteHeader(http.StatusBadRequest)
-					rw.Write([]byte(`{"status":false,"error":"unexpected request"}`))
+					_, _ = rw.Write([]byte(`{"status":false,"error":"unexpected request"}`))
 				}
 			}),
 		)
@@ -275,12 +275,12 @@ func TestExportCmdWithOutputFile(t *testing.T) {
 	token := "abcdef01-23456789-abcdef01-23456789-abcdef01"
 
 	// Create a temporary file for output
-	tmpFile, err := os.CreateTemp("", "export_test_*.json")
+	tmpDir := t.TempDir()
+	tmpFile, err := os.CreateTemp(tmpDir, "export_test_*.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmpFile.Close()
-	defer os.Remove(tmpFile.Name())
+	_ = tmpFile.Close()
 
 	s := httptest.NewServer(
 		http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
@@ -288,7 +288,7 @@ func TestExportCmdWithOutputFile(t *testing.T) {
 				t.Errorf("unexpected TOKEN: %v", req.Header.Get("X-Auth-Token"))
 			}
 			rw.WriteHeader(http.StatusOK)
-			rw.Write([]byte(`{"verdict":"malicious","score":2800}`))
+			_, _ = rw.Write([]byte(`{"verdict":"malicious","score":2800}`))
 		}),
 	)
 	defer s.Close()
@@ -311,7 +311,6 @@ func TestExportCmdWithOutputFile(t *testing.T) {
 
 	os.Args = args
 	err = Execute()
-
 	if err != nil {
 		t.Errorf("Export command with output file error = %v, stderr: %v", err, bufErr.String())
 	}

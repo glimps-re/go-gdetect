@@ -950,7 +950,7 @@ func (c *Client) ExportResult(ctx context.Context, uuid string, options ExportOp
 	}
 	u.RawQuery = q.Encode()
 
-	request, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return
 	}
@@ -963,7 +963,11 @@ func (c *Client) ExportResult(ctx context.Context, uuid string, options ExportOp
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		if e := resp.Body.Close(); e != nil {
+			Logger.Warn(fmt.Sprintf("failed to close resp body, err: %s", e))
+		}
+	}()
 	data, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return

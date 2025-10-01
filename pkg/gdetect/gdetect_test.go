@@ -1415,6 +1415,7 @@ func TestClient_GetProfileStatus(t *testing.T) {
 		setBadBody         bool
 		setTimeout         bool
 		setNotFound        bool
+		setErrorBody       bool
 	}
 	type args struct {
 		ctx context.Context
@@ -1531,6 +1532,12 @@ func TestClient_GetProfileStatus(t *testing.T) {
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
+					case tt.fields.setErrorBody:
+						rw.WriteHeader(http.StatusOK)
+						_, err := io.Copy(rw, io.NopCloser(ErrorReader{err: errors.New("test")}))
+						if err != nil {
+							t.Fatalf("cannot write test response: %s", err)
+						}
 					case tt.fields.setNotFound:
 						rw.WriteHeader(http.StatusNotFound)
 						rw.Header().Add("Content-Type", "application/json")
@@ -1582,6 +1589,7 @@ func TestClient_GetAPIVersion(t *testing.T) {
 		setBadBody   bool
 		setTimeout   bool
 		setNotFound  bool
+		setErrorBody bool
 	}
 	tests := []struct {
 		name        string
@@ -1658,6 +1666,12 @@ func TestClient_GetAPIVersion(t *testing.T) {
 					case tt.args.setBadBody:
 						rw.WriteHeader(http.StatusOK)
 						_, err := rw.Write([]byte(`{"dai`))
+						if err != nil {
+							t.Fatalf("cannot write test response: %s", err)
+						}
+					case tt.args.setErrorBody:
+						rw.WriteHeader(http.StatusOK)
+						_, err := io.Copy(rw, io.NopCloser(ErrorReader{err: errors.New("test")}))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
@@ -1972,7 +1986,7 @@ func TestClient_ExportResult(t *testing.T) {
 					if req.Header.Get("X-Auth-Token") != token {
 						t.Errorf("handler.ExportResult() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
 					}
-					if req.Method != "GET" {
+					if req.Method != http.MethodGet {
 						t.Errorf("handler.ExportResult() %v error = unexpected METHOD: %v", tt.name, req.Method)
 					}
 
@@ -1988,50 +2002,50 @@ func TestClient_ExportResult(t *testing.T) {
 							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 						}
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte("%PDF-1.3\n"))
+						_, _ = rw.Write([]byte("%PDF-1.3\n"))
 					case strings.Contains(req.URL.Path, "1234_json_full"):
 						if format != "json" || layout != "fr" || full != "true" {
 							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 						}
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"verdict":"malicious","score":2800}`))
+						_, _ = rw.Write([]byte(`{"verdict":"malicious","score":2800}`))
 					case strings.Contains(req.URL.Path, "1234_misp"):
 						if format != "misp" || layout != "en" {
 							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 						}
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"Event":{"uuid":"test"}}`))
+						_, _ = rw.Write([]byte(`{"Event":{"uuid":"test"}}`))
 					case strings.Contains(req.URL.Path, "1234_stix"):
 						if format != "stix" {
 							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 						}
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"type":"bundle"}`))
+						_, _ = rw.Write([]byte(`{"type":"bundle"}`))
 					case strings.Contains(req.URL.Path, "1234_markdown"):
 						if format != "markdown" {
 							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 						}
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte("# GMalware submission report\n"))
+						_, _ = rw.Write([]byte("# GMalware submission report\n"))
 					case strings.Contains(req.URL.Path, "1234_csv"):
 						if format != "csv" {
 							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 						}
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte("name,sha256,size\n"))
+						_, _ = rw.Write([]byte("name,sha256,size\n"))
 					case strings.Contains(req.URL.Path, "1234_timeout"):
 						time.Sleep(15 * time.Millisecond)
 						rw.WriteHeader(http.StatusOK)
-						rw.Write([]byte(`{"verdict":"malicious"}`))
+						_, _ = rw.Write([]byte(`{"verdict":"malicious"}`))
 					case strings.Contains(req.URL.Path, "1234_not_found"):
 						rw.WriteHeader(http.StatusNotFound)
-						rw.Write([]byte(`{"status":false,"error":"not found"}`))
+						_, _ = rw.Write([]byte(`{"status":false,"error":"not found"}`))
 					case strings.Contains(req.URL.Path, "1234_forbidden"):
 						rw.WriteHeader(http.StatusForbidden)
-						rw.Write([]byte(`{"status":false,"error":"forbidden"}`))
+						_, _ = rw.Write([]byte(`{"status":false,"error":"forbidden"}`))
 					case strings.Contains(req.URL.Path, "1234_bad_request"):
 						rw.WriteHeader(http.StatusBadRequest)
-						rw.Write([]byte(`{"status":false,"error":"bad request"}`))
+						_, _ = rw.Write([]byte(`{"status":false,"error":"bad request"}`))
 					default:
 						t.Errorf("handler.ExportResult() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 					}
