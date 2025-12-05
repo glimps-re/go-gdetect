@@ -944,7 +944,7 @@ func (c *Client) getAPIVersions(ctx context.Context, do func(*http.Request) (*ht
 		return
 	}
 	if c.syndetect {
-		if v, ok := response["v1"]; ok {
+		if v, ok := response["/v1"]; ok {
 			version = v
 			return
 		}
