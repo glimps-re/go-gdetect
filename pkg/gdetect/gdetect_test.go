@@ -1834,7 +1834,7 @@ func TestClient_Reconfigure(t *testing.T) {
 					case tt.args.old_syndetect && req.URL.Path == "/api/versions":
 						rw.WriteHeader(http.StatusOK)
 						rw.Header().Add("Content-Type", "application/json")
-						_, err := rw.Write([]byte(`{"v1":"1.0.0"}`))
+						_, err := rw.Write([]byte(`{"/v1":"1.0.0"}`))
 						if err != nil {
 							t.Fatalf("cannot write test response : %s", err)
 						}
