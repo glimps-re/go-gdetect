@@ -1283,7 +1283,7 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 		name       string
 		fields     fields
 		args       args
-		wantResult interface{}
+		wantResult any
 		wantErr    bool
 		timeout    time.Duration
 	}{

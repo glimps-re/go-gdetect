@@ -1,0 +1,32 @@
+version: 2
+
+builds:
+  - id: go-gdetect
+    main: ./main.go
+    binary: go-gdetect
+    goos:
+      - linux
+      - windows
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w
+
+archives:
+  - id: go-gdetect
+    ids:
+      - go-gdetect
+    formats:
+      - tar.gz
+      - zip
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: 'checksums.txt'
+
+release:
+  github:
+    owner: glimps-re
+    name: go-gdetect

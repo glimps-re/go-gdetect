@@ -814,7 +814,7 @@ func (c *Client) ExtractExpertViewURL(result *Result) (urlExpertView string, err
 
 // GetFullSubmissionByUUID retrieves full submission using results full endpoint
 // on Detect API with given UUID.
-func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (result interface{}, err error) {
+func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (result any, err error) {
 	if c.syndetect {
 		return nil, ErrNotAvailable
 	}
