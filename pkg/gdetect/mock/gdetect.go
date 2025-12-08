@@ -18,7 +18,7 @@ type MockGDetectSubmitter struct {
 	WaitForReaderMock           func(ctx context.Context, r io.Reader, options gdetect.WaitForOptions) (result gdetect.Result, err error)
 	ExtractTokenViewURLMock     func(result *gdetect.Result) (urlTokenView string, err error)
 	ExtractExpertViewURLMock    func(result *gdetect.Result) (urlExpertView string, err error)
-	GetFullSubmissionByUUIDMock func(ctx context.Context, uuid string) (result interface{}, err error)
+	GetFullSubmissionByUUIDMock func(ctx context.Context, uuid string) (result any, err error)
 	GetProfileStatusMock        func(ctx context.Context) (status gdetect.ProfileStatus, err error)
 	GetAPIVersionMock           func(ctx context.Context) (version string, err error)
 	ExportResultMock            func(ctx context.Context, uuid string, options gdetect.ExportOptions) (data []byte, err error)
@@ -94,7 +94,7 @@ func (m *MockGDetectSubmitter) ExtractExpertViewURL(result *gdetect.Result) (url
 	panic("ExtractExpertViewURLMock not implemented in current test")
 }
 
-func (m *MockGDetectSubmitter) GetFullSubmissionByUUID(ctx context.Context, uuid string) (result interface{}, err error) {
+func (m *MockGDetectSubmitter) GetFullSubmissionByUUID(ctx context.Context, uuid string) (result any, err error) {
 	if m.GetFullSubmissionByUUIDMock != nil {
 		return m.GetFullSubmissionByUUIDMock(ctx, uuid)
 	}

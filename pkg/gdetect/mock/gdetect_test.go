@@ -342,9 +342,9 @@ func TestExtractExpertViewURL(t *testing.T) {
 // TestGetFullSubmissionByUUID tests the GetFullSubmissionByUUID mock method
 func TestGetFullSubmissionByUUID(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
-		expectedData := map[string]interface{}{"uuid": "full-uuid", "details": "full analysis"}
+		expectedData := map[string]any{"uuid": "full-uuid", "details": "full analysis"}
 		mock := &MockGDetectSubmitter{
-			GetFullSubmissionByUUIDMock: func(ctx context.Context, uuid string) (interface{}, error) {
+			GetFullSubmissionByUUIDMock: func(ctx context.Context, uuid string) (any, error) {
 				if uuid != "full-uuid" {
 					t.Errorf("Expected uuid 'full-uuid', got '%s'", uuid)
 				}
@@ -356,7 +356,7 @@ func TestGetFullSubmissionByUUID(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
-		data := result.(map[string]interface{})
+		data := result.(map[string]any)
 		if data["uuid"] != "full-uuid" {
 			t.Errorf("Expected uuid 'full-uuid', got '%v'", data["uuid"])
 		}
