@@ -36,6 +36,7 @@ var (
 	ErrNoToken      = errors.New("no token in result")
 	ErrNoSID        = errors.New("no sid in result")
 	ErrNotAvailable = errors.New("this feature is not available")
+	ErrAPICheckFail = errors.New("api check fail after reconfiguration")
 )
 
 var Logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -291,7 +292,7 @@ func (c *Client) Reconfigure(ctx context.Context, endpoint string, token string,
 	if c.syndetect {
 		v, err := c.getAPIVersions(ctx, c.HttpClient.Do)
 		if err != nil {
-			return err
+			return errors.Join(ErrAPICheckFail)
 		}
 		ver, err := semver.NewVersion(v)
 		if err != nil {
@@ -304,7 +305,7 @@ func (c *Client) Reconfigure(ctx context.Context, endpoint string, token string,
 	}
 	_, err = c.getProfileStatus(ctx, c.HttpClient.Do)
 	if err != nil {
-		return
+		return errors.Join(ErrAPICheckFail)
 	}
 	return
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.5.1] - XX
+
+### Changed
+
+* client.Reconfigure wrap specific error when api check fail
+
 ## [v1.5.0] - 2025-10-01
 
 ### Added

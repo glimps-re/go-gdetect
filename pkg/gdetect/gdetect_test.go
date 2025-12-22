@@ -3,6 +3,7 @@ package gdetect
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -1728,11 +1729,13 @@ func TestClient_Reconfigure(t *testing.T) {
 	type args struct {
 		token                    string
 		insecure                 bool
-		old_syndetect            bool
-		new_syndetect            bool
+		syndetectVersion         string
 		httpClient               *http.Client
 		setGetProfileStatusError bool
+		setGetAPIVersionsError   bool
 	}
+	insecureTransport := http.DefaultTransport
+	insecureTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // test configurable insecure
 	tests := []struct {
 		name       string
 		args       args
@@ -1742,10 +1745,10 @@ func TestClient_Reconfigure(t *testing.T) {
 		{
 			name: "valid syndetect 1.0.0",
 			args: args{
-				token:         token,
-				insecure:      false,
-				httpClient:    nil,
-				old_syndetect: true,
+				token:            token,
+				insecure:         false,
+				httpClient:       nil,
+				syndetectVersion: "1.0.0",
 			},
 			wantErr: false,
 			wantClient: &Client{
@@ -1755,12 +1758,39 @@ func TestClient_Reconfigure(t *testing.T) {
 		{
 			name: "valid syndetect > 1.0.0",
 			args: args{
-				token:         token,
-				insecure:      false,
-				httpClient:    nil,
-				new_syndetect: true,
+				token:            token,
+				insecure:         false,
+				httpClient:       nil,
+				syndetectVersion: "1.1.0",
 			},
 			wantErr: false,
+			wantClient: &Client{
+				Token: token,
+			},
+		},
+		{
+			name: "invalid syndetect version",
+			args: args{
+				token:            token,
+				insecure:         false,
+				httpClient:       nil,
+				syndetectVersion: "azhecde",
+			},
+			wantErr: true,
+			wantClient: &Client{
+				Token: token,
+			},
+		},
+		{
+			name: "syndetect get version error",
+			args: args{
+				token:                  token,
+				insecure:               false,
+				httpClient:             nil,
+				syndetectVersion:       "1.1.0",
+				setGetAPIVersionsError: true,
+			},
+			wantErr: true,
 			wantClient: &Client{
 				Token: token,
 			},
@@ -1804,6 +1834,18 @@ func TestClient_Reconfigure(t *testing.T) {
 			},
 		},
 		{
+			name: "insecure http client",
+			args: args{
+				token:    token,
+				insecure: true,
+			},
+			wantErr: false,
+			wantClient: &Client{
+				Token:      token,
+				HttpClient: &http.Client{Transport: insecureTransport},
+			},
+		},
+		{
 			name: "get status error",
 			args: args{
 				token:                    token,
@@ -1831,21 +1873,15 @@ func TestClient_Reconfigure(t *testing.T) {
 					case tt.args.setGetProfileStatusError:
 						rw.WriteHeader(http.StatusBadRequest)
 						rw.Header().Add("Content-Type", "application/json")
-					case tt.args.old_syndetect && req.URL.Path == "/api/versions":
+					case tt.args.setGetAPIVersionsError && req.URL.Path == "/api/versions":
+						rw.WriteHeader(http.StatusBadGateway)
+					case tt.args.syndetectVersion != "" && req.URL.Path == "/api/versions":
 						rw.WriteHeader(http.StatusOK)
 						rw.Header().Add("Content-Type", "application/json")
-						_, err := rw.Write([]byte(`{"/v1":"1.0.0"}`))
+						_, err := rw.Write(fmt.Appendf([]byte{}, `{"/v1":"%s"}`, tt.args.syndetectVersion))
 						if err != nil {
 							t.Fatalf("cannot write test response : %s", err)
 						}
-					case tt.args.new_syndetect && req.URL.Path == "/api/versions":
-						rw.WriteHeader(http.StatusOK)
-						rw.Header().Add("Content-Type", "application/json")
-						_, err := rw.Write([]byte(`{"v1":"1.1.0"}`))
-						if err != nil {
-							t.Fatalf("cannot write test response : %s", err)
-						}
-
 					default:
 						rw.WriteHeader(http.StatusOK)
 						_, err := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`))
@@ -1859,7 +1895,11 @@ func TestClient_Reconfigure(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewClient() error on test init : %s", err)
 			}
-			err = gotClient.Reconfigure(t.Context(), s.URL, tt.args.token, tt.args.insecure, tt.args.old_syndetect, tt.args.httpClient)
+			var syndetect bool
+			if tt.args.syndetectVersion != "" {
+				syndetect = true
+			}
+			err = gotClient.Reconfigure(t.Context(), s.URL, tt.args.token, tt.args.insecure, syndetect, tt.args.httpClient)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("client.Reconfigure() error = %v, wantErr %v", err, tt.wantErr)
 			}
