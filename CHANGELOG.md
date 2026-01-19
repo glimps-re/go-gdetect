@@ -1,5 +1,15 @@
 # Changelog
 
+## [v1.6.0]
+
+### Added
+
+* ClientConfig + NewClientFromConfig
+
+### Changed
+
+* Reconfigure now accept ClientConfig
+
 ## [v1.5.0] - 2025-10-01
 
 ### Added

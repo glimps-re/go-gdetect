@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"net/http"
 	"strings"
 	"testing"
 
@@ -535,24 +534,24 @@ func TestExportResult(t *testing.T) {
 func TestReconfigure(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		mock := &MockGDetectSubmitter{
-			ReconfigureMock: func(ctx context.Context, endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) error {
-				if endpoint != "https://new-endpoint.com" {
-					t.Errorf("Expected endpoint 'https://new-endpoint.com', got '%s'", endpoint)
+			ReconfigureMock: func(ctx context.Context, config gdetect.ClientConfig) error {
+				if config.Endpoint != "https://new-endpoint.com" {
+					t.Errorf("Expected endpoint 'https://new-endpoint.com', got '%s'", config.Endpoint)
 				}
-				if token != "new-token" {
-					t.Errorf("Expected token 'new-token', got '%s'", token)
+				if config.Token != "new-token" {
+					t.Errorf("Expected token 'new-token', got '%s'", config.Token)
 				}
-				if insecure {
+				if config.Insecure {
 					t.Error("Expected insecure=false")
 				}
-				if syndetect {
+				if config.Syndetect {
 					t.Error("Expected syndetect=false")
 				}
 				return nil
 			},
 		}
 
-		err := mock.Reconfigure(t.Context(), "https://new-endpoint.com", "new-token", false, false, nil)
+		err := mock.Reconfigure(t.Context(), gdetect.ClientConfig{Endpoint: "https://new-endpoint.com", Token: "new-token"})
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -566,6 +565,6 @@ func TestReconfigure(t *testing.T) {
 		}()
 
 		mock := &MockGDetectSubmitter{}
-		_ = mock.Reconfigure(t.Context(), "endpoint", "token", false, false, nil)
+		_ = mock.Reconfigure(t.Context(), gdetect.ClientConfig{})
 	})
 }

@@ -103,7 +103,7 @@ func TestClient_GetResults(t *testing.T) {
 				lock:       &sync.RWMutex{},
 				Endpoint:   s.URL,
 				Token:      tt.fields.Token,
-				HttpClient: http.DefaultClient,
+				HTTPClient: http.DefaultClient,
 			}
 
 			gotUuids, err := c.GetResults(tt.args.ctx, tt.args.from, tt.args.size)

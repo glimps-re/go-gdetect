@@ -69,7 +69,7 @@ type ExtendedGDetectSubmitter interface {
 }
 
 type ControllerSubmitter interface {
-	Reconfigure(ctx context.Context, endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error)
+	Reconfigure(ctx context.Context, config ClientConfig) (err error)
 }
 
 type ControllerGDetectSubmitter interface {
@@ -87,12 +87,22 @@ var (
 	_ ControllerExtendedGdetectSubmitter = &Client{}
 )
 
+type ClientConfig struct {
+	Endpoint   string
+	Token      string
+	ExpertURL  string
+	Syndetect  bool
+	HTTPClient *http.Client
+	Insecure   bool
+}
+
 // Client is the representation of a Detect API CLient.
 type Client struct {
 	lock       *sync.RWMutex
 	Endpoint   string
+	ExpertURL  string
 	Token      string
-	HttpClient *http.Client
+	HTTPClient *http.Client
 	syndetect  bool
 }
 
@@ -250,6 +260,8 @@ var DefaultTimeout = time.Minute * 5
 //
 // If Client is well-formed, it returns error == nil. If error != nil, that
 // could mean that Token is invalid (by its length for example).
+//
+// Deprecated: must use NewClientFromConfig
 func NewClient(endpoint, token string, insecure bool, httpClient *http.Client) (client *Client, err error) {
 	err = checkToken(token)
 	if err != nil {
@@ -257,39 +269,41 @@ func NewClient(endpoint, token string, insecure bool, httpClient *http.Client) (
 	}
 
 	client = &Client{
-		lock:       &sync.RWMutex{},
+		lock: &sync.RWMutex{},
+	}
+	client.setFromConfig(ClientConfig{
 		Endpoint:   endpoint,
 		Token:      token,
-		HttpClient: httpClient,
-	}
-	if httpClient == nil {
-		transport := http.DefaultTransport
-		if insecure {
-			transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // optional insecure
-		}
-		client.HttpClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
-	}
-
+		Insecure:   insecure,
+		HTTPClient: httpClient,
+	})
 	return client, nil
 }
 
-func (c *Client) Reconfigure(ctx context.Context, endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error) {
+// NewClientFromConfig returns a fresh client, given endpoint token and insecure params.
+// The returned client could be used to perform operations on gdetect.
+//
+// If Client is well-formed, it returns error == nil. If error != nil, that
+// could mean that Token is invalid (by its length for example).
+func NewClientFromConfig(config ClientConfig) (client *Client, err error) {
+	err = checkToken(config.Token)
+	if err != nil {
+		return
+	}
+	client = &Client{
+		lock: &sync.RWMutex{},
+	}
+	client.setFromConfig(config)
+	return client, nil
+}
+
+// func (c *Client) Reconfigure(ctx context.Context, endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error) {
+func (c *Client) Reconfigure(ctx context.Context, config ClientConfig) (err error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	c.Endpoint = endpoint
-	c.Token = token
-	c.syndetect = syndetect
-	if httpClient == nil {
-		transport := http.DefaultTransport
-		if insecure {
-			transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // optional insecure
-		}
-		c.HttpClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
-	} else {
-		c.HttpClient = httpClient
-	}
+	c.setFromConfig(config)
 	if c.syndetect {
-		v, err := c.getAPIVersions(ctx, c.HttpClient.Do)
+		v, err := c.getAPIVersions(ctx, c.HTTPClient.Do)
 		if err != nil {
 			return err
 		}
@@ -302,17 +316,33 @@ func (c *Client) Reconfigure(ctx context.Context, endpoint string, token string,
 			return nil
 		}
 	}
-	_, err = c.getProfileStatus(ctx, c.HttpClient.Do)
+	_, err = c.getProfileStatus(ctx, c.HTTPClient.Do)
 	if err != nil {
 		return
 	}
 	return
 }
 
+func (c *Client) setFromConfig(config ClientConfig) {
+	c.Endpoint = config.Endpoint
+	c.ExpertURL = config.ExpertURL
+	c.Token = config.Token
+	c.syndetect = config.Syndetect
+	if config.HTTPClient == nil {
+		transport := http.DefaultTransport
+		if config.Insecure {
+			transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // optional insecure
+		}
+		c.HTTPClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
+	} else {
+		c.HTTPClient = config.HTTPClient
+	}
+}
+
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	return c.HttpClient.Do(req)
+	return c.HTTPClient.Do(req)
 }
 
 func checkToken(token string) (err error) {
@@ -797,7 +827,11 @@ func (c *Client) ExtractTokenViewURL(result *Result) (urlTokenView string, err e
 		err = ErrNoToken
 		return
 	}
-	urlTokenView = c.Endpoint + "/expert/en/analysis-redirect/" + token
+	endpoint := c.Endpoint
+	if c.ExpertURL != "" {
+		endpoint = c.ExpertURL
+	}
+	urlTokenView = endpoint + "/expert/en/analysis-redirect/" + token
 	return
 }
 
@@ -808,7 +842,11 @@ func (c *Client) ExtractExpertViewURL(result *Result) (urlExpertView string, err
 		err = ErrNoSID
 		return
 	}
-	urlExpertView = c.Endpoint + "/expert/en/analysis/advanced/" + sid
+	endpoint := c.Endpoint
+	if c.ExpertURL != "" {
+		endpoint = c.ExpertURL
+	}
+	urlExpertView = endpoint + "/expert/en/analysis/advanced/" + sid
 	return
 }
 
@@ -982,7 +1020,7 @@ func (c *Client) ExportResult(ctx context.Context, uuid string, options ExportOp
 	if err != nil {
 		return
 	}
-	resp, err := c.HttpClient.Do(request)
+	resp, err := c.HTTPClient.Do(request)
 	if err != nil {
 		return
 	}

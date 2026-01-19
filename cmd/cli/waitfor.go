@@ -51,7 +51,7 @@ URL to token view and expert analysis view.`,
 			return
 		}
 
-		disableSSLChecking, err := cmd.Flags().GetBool("insecure")
+		insecure, err := cmd.Flags().GetBool("insecure")
 		if err != nil {
 			return
 		}
@@ -81,17 +81,19 @@ URL to token view and expert analysis view.`,
 			return
 		}
 
-		client, err := gdetect.NewClient(apiEndpoint, apiToken, disableSSLChecking, nil)
-		if err != nil {
-			return
-		}
-
 		syndetect, err := cmd.Flags().GetBool("syndetect")
 		if err != nil {
 			return
 		}
-		if syndetect {
-			client.SetSyndetect()
+
+		client, err := gdetect.NewClientFromConfig(gdetect.ClientConfig{
+			Endpoint:  apiEndpoint,
+			Token:     apiToken,
+			Insecure:  insecure,
+			Syndetect: syndetect,
+		})
+		if err != nil {
+			return
 		}
 
 		password, err := cmd.Flags().GetString("password")

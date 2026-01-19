@@ -93,7 +93,7 @@ func TestNewClient(t *testing.T) {
 			wantClient: &Client{
 				Endpoint:   "http://glimps/detect",
 				Token:      token,
-				HttpClient: http.DefaultClient,
+				HTTPClient: http.DefaultClient,
 			},
 		},
 		{
@@ -108,7 +108,7 @@ func TestNewClient(t *testing.T) {
 			wantClient: &Client{
 				Endpoint:   "http://glimps/detect",
 				Token:      token,
-				HttpClient: &http.Client{Timeout: 2 * time.Second},
+				HTTPClient: &http.Client{Timeout: 2 * time.Second},
 			},
 		},
 	}
@@ -1787,7 +1787,7 @@ func TestClient_Reconfigure(t *testing.T) {
 			wantErr: false,
 			wantClient: &Client{
 				Token:      token,
-				HttpClient: http.DefaultClient,
+				HTTPClient: http.DefaultClient,
 			},
 		},
 		{
@@ -1800,7 +1800,7 @@ func TestClient_Reconfigure(t *testing.T) {
 			wantErr: false,
 			wantClient: &Client{
 				Token:      token,
-				HttpClient: &http.Client{Timeout: 2 * time.Second},
+				HTTPClient: &http.Client{Timeout: 2 * time.Second},
 			},
 		},
 		{
@@ -1859,7 +1859,13 @@ func TestClient_Reconfigure(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewClient() error on test init : %s", err)
 			}
-			err = gotClient.Reconfigure(t.Context(), s.URL, tt.args.token, tt.args.insecure, tt.args.old_syndetect, tt.args.httpClient)
+			err = gotClient.Reconfigure(t.Context(), ClientConfig{
+				Endpoint:   s.URL,
+				Token:      tt.args.token,
+				Insecure:   tt.args.insecure,
+				Syndetect:  tt.args.old_syndetect,
+				HTTPClient: tt.args.httpClient,
+			})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("client.Reconfigure() error = %v, wantErr %v", err, tt.wantErr)
 			}
