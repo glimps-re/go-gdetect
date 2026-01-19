@@ -48,12 +48,16 @@ The export can be full analysis or summarized.`,
 			return
 		}
 
-		disableSSLChecking, err := cmd.Flags().GetBool("insecure")
+		insecure, err := cmd.Flags().GetBool("insecure")
 		if err != nil {
 			return
 		}
 
-		client, err := gdetect.NewClient(apiEndpoint, apiToken, disableSSLChecking, nil)
+		client, err := gdetect.NewClientFromConfig(gdetect.ClientConfig{
+			Endpoint: apiEndpoint,
+			Token:    apiToken,
+			Insecure: insecure,
+		})
 		if err != nil {
 			return
 		}

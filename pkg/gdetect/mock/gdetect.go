@@ -3,7 +3,6 @@ package gdetectmock
 import (
 	"context"
 	"io"
-	"net/http"
 
 	"github.com/glimps-re/go-gdetect/pkg/gdetect"
 )
@@ -23,7 +22,7 @@ type MockGDetectSubmitter struct {
 	GetAPIVersionMock           func(ctx context.Context) (version string, err error)
 	ExportResultMock            func(ctx context.Context, uuid string, options gdetect.ExportOptions) (data []byte, err error)
 
-	ReconfigureMock func(ctx context.Context, endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error)
+	ReconfigureMock func(ctx context.Context, config gdetect.ClientConfig) (err error)
 }
 
 var (
@@ -122,9 +121,9 @@ func (m *MockGDetectSubmitter) ExportResult(ctx context.Context, uuid string, op
 	panic("ExportResult not implemented in current test")
 }
 
-func (m *MockGDetectSubmitter) Reconfigure(ctx context.Context, endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error) {
+func (m *MockGDetectSubmitter) Reconfigure(ctx context.Context, config gdetect.ClientConfig) (err error) {
 	if m.ReconfigureMock != nil {
-		return m.ReconfigureMock(ctx, endpoint, token, insecure, syndetect, httpClient)
+		return m.ReconfigureMock(ctx, config)
 	}
 	panic("Reconfigure not implemented in current test")
 }
