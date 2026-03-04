@@ -109,7 +109,8 @@ type Client struct {
 // Result represent typical json result from Detect API operations like get or
 // search. It maps elements from the json result to fields.
 type Result struct {
-	UUID              string            `json:"uuid"`
+	UUID              string            `json:"uuid"`         // detect only (analysis ID)
+	ID                string            `json:"id,omitempty"` // syndetect only (analysis ID)
 	SHA256            string            `json:"sha256"`
 	SHA1              string            `json:"sha1"`
 	MD5               string            `json:"md5"`
@@ -431,9 +432,9 @@ func (c *Client) getPath(path string) string {
 }
 
 // GetResultByUUID retrieves result using results endpoint on Detect API with
-// given UUID.
-func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Result, err error) {
-	request, err := c.prepareRequest(ctx, "GET", c.getPath("results")+uuid, nil)
+// given analysis ID.
+func (c *Client) GetResultByUUID(ctx context.Context, analysisID string) (result Result, err error) {
+	request, err := c.prepareRequest(ctx, "GET", c.getPath("results")+analysisID, nil)
 	if err != nil {
 		return
 	}
@@ -470,7 +471,7 @@ func (c *Client) GetResultByUUID(ctx context.Context, uuid string) (result Resul
 		return
 	}
 	if c.syndetect {
-		result.UUID = uuid
+		result.UUID = analysisID
 	}
 
 	return
@@ -538,10 +539,10 @@ func (c *Client) SubmitFile(ctx context.Context, filePath string, submitOptions 
 func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions SubmitOptions) (uuid string, err error) {
 	// Struct corresponding to submit json result
 	type responseT struct {
-		Status bool   `json:"status"`
-		UUID   string `json:"uuid,omitempty"`
-		ID     string `json:"id,omitempty"`
-		Error  string `json:"error,omitempty"`
+		Status bool   `json:"status"`          // detect & syndetect
+		UUID   string `json:"uuid,omitempty"`  // detect only (analysis id)
+		ID     string `json:"id,omitempty"`    // syndetect only (analysis id)
+		Error  string `json:"error,omitempty"` // detect & syndetect
 	}
 
 	var (
@@ -773,7 +774,7 @@ func (c *Client) waitforWithPreGet(ctx context.Context, r io.ReadSeeker, pullTim
 	if _, err = io.Copy(hash, r); err != nil {
 		return
 	}
-	uuid := ""
+	analysisID := ""
 	readerSHA256 := hex.EncodeToString(hash.Sum(nil))
 	result, err = c.GetResultBySHA256(ctx, readerSHA256)
 	httpErr := new(HTTPError)
@@ -783,7 +784,7 @@ func (c *Client) waitforWithPreGet(ctx context.Context, r io.ReadSeeker, pullTim
 		if _, err = r.Seek(0, io.SeekStart); err != nil {
 			return
 		}
-		uuid, err = c.SubmitReader(ctx, r, submitOptions)
+		analysisID, err = c.SubmitReader(ctx, r, submitOptions)
 		if err != nil {
 			return
 		}
@@ -792,21 +793,25 @@ func (c *Client) waitforWithPreGet(ctx context.Context, r io.ReadSeeker, pullTim
 	case result.Done:
 		return
 	default:
-		uuid = result.UUID
+		// result exist in cache but is not done yet
+		analysisID = result.UUID
+		if c.syndetect {
+			analysisID = result.ID
+		}
 	}
-	result, err = c.waitForUUID(ctx, uuid, pullTime)
+	result, err = c.waitForUUID(ctx, analysisID, pullTime)
 	if err != nil {
 		return
 	}
 	return
 }
 
-func (c *Client) waitForUUID(ctx context.Context, uuid string, pullTime time.Duration) (result Result, err error) {
+func (c *Client) waitForUUID(ctx context.Context, analysisID string, pullTime time.Duration) (result Result, err error) {
 	ticker := time.NewTicker(pullTime)
 	for {
 		select {
 		case <-ticker.C:
-			result, err = c.GetResultByUUID(ctx, uuid)
+			result, err = c.GetResultByUUID(ctx, analysisID)
 			if err != nil {
 				return
 			}
@@ -1020,7 +1025,7 @@ func (c *Client) ExportResult(ctx context.Context, uuid string, options ExportOp
 	if err != nil {
 		return
 	}
-	resp, err := c.HTTPClient.Do(request)
+	resp, err := c.Do(request)
 	if err != nil {
 		return
 	}

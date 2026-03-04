@@ -988,7 +988,7 @@ func TestClient_WaitForFile_Syndetect(t *testing.T) {
 				pullTime:    15 * time.Millisecond,
 				bypassCache: true,
 			},
-			wantResult: Result{UUID: "1234", Done: true},
+			wantResult: Result{UUID: "1234", ID: "1234", Done: true},
 			wantErr:    false,
 		},
 		{
@@ -1001,6 +1001,18 @@ func TestClient_WaitForFile_Syndetect(t *testing.T) {
 				pullTime: 15 * time.Millisecond,
 			},
 			wantResult: Result{UUID: "1234", Done: true},
+			wantErr:    false,
+		},
+		{
+			name: "VALID USE CACHE NOT DONE",
+			args: args{
+				ctx:      context.Background(),
+				filepath: "../../tests/samples/false_cryptolocker",
+				params:   []int{1},
+				timeout:  180 * time.Second,
+				pullTime: 15 * time.Millisecond,
+			},
+			wantResult: Result{UUID: "1234", ID: "1234", Done: true},
 			wantErr:    false,
 		},
 		{
@@ -1068,6 +1080,14 @@ func TestClient_WaitForFile_Syndetect(t *testing.T) {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
 						_, err := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+						if err != nil {
+							t.Fatalf("cannot write test response: %s", err)
+						}
+					case "/api/v1/results/6fd51ba6957be10585068b68ab4a0683759436c3eb7cb426668773cdd7b70551":
+						if req.Method != http.MethodGet {
+							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
+						}
+						_, err := rw.Write([]byte(`{"id":"1234", "done": false}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
