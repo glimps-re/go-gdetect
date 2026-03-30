@@ -36,7 +36,7 @@ func (c *Client) GetResults(ctx context.Context, from int, size int, tags ...str
 		return
 	}
 
-	rawBody, err := io.ReadAll(resp.Body)
+	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return
 	}

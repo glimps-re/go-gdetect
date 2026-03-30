@@ -9,6 +9,17 @@ import (
 	"testing"
 )
 
+// Test UUID and SHA256 constants in standard UUID format (8-4-4-4-12).
+const (
+	rootUUIDValid     = "ab000001-0000-0000-0000-000000000001"
+	rootUUIDNeverDone = "ab000001-0000-0000-0000-000000000008"
+	rootUUIDTokenSID  = "ab000001-0000-0000-0000-000000000002"
+	rootUUIDToken     = "ab000001-0000-0000-0000-000000000003"
+	// SHA256 strings (64 hex chars) for search command tests.
+	rootSHA256Valid    = "ab00000100000000000000000000000000000000000000000000000000000001"
+	rootSHA256TokenSID = "ab00000100000000000000000000000000000000000000000000000000000002"
+)
+
 func TestExecute(t *testing.T) {
 	token := "abcdef01-23456789-abcdef01-23456789-abcdef01"
 
@@ -44,7 +55,7 @@ func TestExecute(t *testing.T) {
 					"--token", token,
 				},
 			},
-			wantOut: `1234`,
+			wantOut: rootUUIDValid,
 			wantErr: false,
 		},
 		{
@@ -61,7 +72,7 @@ func TestExecute(t *testing.T) {
 					"--no-cache",
 				},
 			},
-			wantOut: `1234`,
+			wantOut: rootUUIDValid,
 			wantErr: false,
 		},
 		{
@@ -72,7 +83,7 @@ func TestExecute(t *testing.T) {
 					"--token", token,
 				},
 			},
-			wantOut: `1234`,
+			wantOut: rootUUIDValid,
 			wantErr: false,
 		},
 		{
@@ -89,19 +100,19 @@ func TestExecute(t *testing.T) {
 			name: "VALID GET",
 			fields: fields{
 				command: "get",
-				args:    "1234",
+				args:    rootUUIDValid,
 				flags: []string{
 					"--token", token,
 				},
 			},
-			wantOut: `{"uuid":"1234","sha256":"","sha1":"","md5":"","ssdeep":"","is_malware":false,"score":0,"done":true,"timestamp":0,"filetype":"","size":0,"file_count":0,"duration":0,"special_status_code":0}`,
+			wantOut: `{"uuid":"` + rootUUIDValid + `","sha256":"","sha1":"","md5":"","ssdeep":"","is_malware":false,"score":0,"done":true,"timestamp":0,"filetype":"","size":0,"file_count":0,"duration":0,"special_status_code":0}`,
 			wantErr: false,
 		},
 		{
 			name: "INVALID GET URLS NO SID",
 			fields: fields{
 				command: "get",
-				args:    "1234_token",
+				args:    rootUUIDToken,
 				flags: []string{
 					"--token", token,
 					"--retrieve-urls",
@@ -113,25 +124,25 @@ func TestExecute(t *testing.T) {
 			name: "VALID SEARCH",
 			fields: fields{
 				command: "search",
-				args:    "1234",
+				args:    rootSHA256Valid,
 				flags: []string{
 					"--token", token,
 				},
 			},
-			wantOut: `{"uuid":"1234","sha256":"","sha1":"","md5":"","ssdeep":"","is_malware":false,"score":0,"done":true,"timestamp":0,"filetype":"","size":0,"file_count":0,"duration":0,"special_status_code":0}`,
+			wantOut: `{"uuid":"` + rootUUIDValid + `","sha256":"","sha1":"","md5":"","ssdeep":"","is_malware":false,"score":0,"done":true,"timestamp":0,"filetype":"","size":0,"file_count":0,"duration":0,"special_status_code":0}`,
 			wantErr: false,
 		},
 		{
 			name: "VALID SEARCH URLS",
 			fields: fields{
 				command: "search",
-				args:    "1234_token_sid",
+				args:    rootSHA256TokenSID,
 				flags: []string{
 					"--token", token,
 					"--retrieve-urls",
 				},
 			},
-			wantOut: `{"uuid":"1234_token_sid","sha256":"","sha1":"","md5":"","ssdeep":"","is_malware":false,"score":0,"done":true,"timestamp":0,"filetype":"","size":0,"sid":"1234_token_sid","file_count":0,"duration":0,"token":"1234_token_sid","special_status_code":0}`,
+			wantOut: `{"uuid":"` + rootUUIDTokenSID + `","sha256":"","sha1":"","md5":"","ssdeep":"","is_malware":false,"score":0,"done":true,"timestamp":0,"filetype":"","size":0,"sid":"` + rootUUIDTokenSID + `","file_count":0,"duration":0,"token":"` + rootUUIDTokenSID + `","special_status_code":0}`,
 			wantErr: false,
 		},
 		{
@@ -145,7 +156,7 @@ func TestExecute(t *testing.T) {
 					"--no-cache",
 				},
 			},
-			wantOut: `{"uuid":"1234","sha256":"","sha1":"","md5":"","ssdeep":"","is_malware":false,"score":0,"done":true,"timestamp":0,"filetype":"","size":0,"file_count":0,"duration":0,"special_status_code":0}`,
+			wantOut: `{"uuid":"` + rootUUIDValid + `","sha256":"","sha1":"","md5":"","ssdeep":"","is_malware":false,"score":0,"done":true,"timestamp":0,"filetype":"","size":0,"file_count":0,"duration":0,"special_status_code":0}`,
 			wantErr: false,
 		},
 		{
@@ -165,7 +176,7 @@ func TestExecute(t *testing.T) {
 					"--no-cache",
 				},
 			},
-			wantOut: `{"uuid":"1234_token_sid","sha256":"","sha1":"","md5":"","ssdeep":"","is_malware":false,"score":0,"done":true,"timestamp":0,"filetype":"","size":0,"sid":"1234_token_sid","file_count":0,"duration":0,"token":"1234_token_sid","special_status_code":0}`,
+			wantOut: `{"uuid":"` + rootUUIDTokenSID + `","sha256":"","sha1":"","md5":"","ssdeep":"","is_malware":false,"score":0,"done":true,"timestamp":0,"filetype":"","size":0,"sid":"` + rootUUIDTokenSID + `","file_count":0,"duration":0,"token":"` + rootUUIDTokenSID + `","special_status_code":0}`,
 			wantErr: false,
 		},
 		{
@@ -215,63 +226,64 @@ func TestExecute(t *testing.T) {
 					t.Errorf("handler.GetResultByUUID() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
 				}
 				switch strings.TrimSpace(req.URL.Path) {
-				case "/api/lite/v2/results/1234":
+				case "/api/lite/v2/results/" + rootUUIDValid:
 					rw.WriteHeader(http.StatusOK)
-					_, err := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+					_, err := rw.Write([]byte(`{"uuid":"` + rootUUIDValid + `", "status": true, "done": true}`))
 					if err != nil {
 						t.Fatalf("cannot write test response: %s", err)
 					}
-				case "/api/lite/v2/results/1234_never_done":
+				case "/api/lite/v2/results/" + rootUUIDNeverDone:
 					rw.WriteHeader(http.StatusOK)
-					_, err := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": false}`))
+					_, err := rw.Write([]byte(`{"uuid":"` + rootUUIDValid + `", "status": true, "done": false}`))
 					if err != nil {
 						t.Fatalf("cannot write test response: %s", err)
 					}
 				case "/api/lite/v2/submit":
 					rw.WriteHeader(http.StatusOK)
+					req.Body = http.MaxBytesReader(rw, req.Body, 10*1024*1024)
 					switch strings.TrimSpace(req.FormValue("description")) {
 					case "valid test":
-						_, err := rw.Write([]byte(`{"uuid":"1234", "status": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + rootUUIDValid + `", "status": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
 					case "never done":
-						_, err := rw.Write([]byte(`{"uuid":"1234_never_done", "status": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + rootUUIDNeverDone + `", "status": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
 					case "with token and sid":
-						_, err := rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + rootUUIDTokenSID + `", "status": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
 					default:
-						_, err := rw.Write([]byte(`{"uuid":"1234", "status": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + rootUUIDValid + `", "status": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
 					}
-				case "/api/lite/v2/results/1234_token":
+				case "/api/lite/v2/results/" + rootUUIDToken:
 					rw.WriteHeader(http.StatusOK)
-					_, err := rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true, "done": true, "token":"1234_token_sid"}`))
+					_, err := rw.Write([]byte(`{"uuid":"` + rootUUIDTokenSID + `", "status": true, "done": true, "token":"` + rootUUIDTokenSID + `"}`))
 					if err != nil {
 						t.Fatalf("cannot write test response: %s", err)
 					}
-				case "/api/lite/v2/results/1234_token_sid":
+				case "/api/lite/v2/results/" + rootUUIDTokenSID:
 					rw.WriteHeader(http.StatusOK)
-					_, err := rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true, "done": true, "sid":"1234_token_sid", "token":"1234_token_sid"}`))
+					_, err := rw.Write([]byte(`{"uuid":"` + rootUUIDTokenSID + `", "status": true, "done": true, "sid":"` + rootUUIDTokenSID + `", "token":"` + rootUUIDTokenSID + `"}`))
 					if err != nil {
 						t.Fatalf("cannot write test response: %s", err)
 					}
-				case "/api/lite/v2/search/1234_token_sid":
+				case "/api/lite/v2/search/" + rootSHA256TokenSID:
 					rw.WriteHeader(http.StatusOK)
-					_, err := rw.Write([]byte(`{"uuid":"1234_token_sid", "status": true, "done": true, "sid":"1234_token_sid", "token":"1234_token_sid"}`))
+					_, err := rw.Write([]byte(`{"uuid":"` + rootUUIDTokenSID + `", "status": true, "done": true, "sid":"` + rootUUIDTokenSID + `", "token":"` + rootUUIDTokenSID + `"}`))
 					if err != nil {
 						t.Fatalf("cannot write test response: %s", err)
 					}
-				case "/api/lite/v2/search/1234":
+				case "/api/lite/v2/search/" + rootSHA256Valid:
 					rw.WriteHeader(http.StatusOK)
-					_, err := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+					_, err := rw.Write([]byte(`{"uuid":"` + rootUUIDValid + `", "status": true, "done": true}`))
 					if err != nil {
 						t.Fatalf("cannot write test response: %s", err)
 					}

@@ -9,6 +9,20 @@ import (
 	"testing"
 )
 
+// Test UUID constants in valid API format (5 groups of 8 hex chars).
+const (
+	exportUUIDPDF        = "ab000001-0000-0000-0000-00000000000a"
+	exportUUIDJSON       = "ab000001-0000-0000-0000-00000000000b"
+	exportUUIDMISP       = "ab000001-0000-0000-0000-00000000000c"
+	exportUUIDSTIX       = "ab000001-0000-0000-0000-00000000000d"
+	exportUUIDMarkdown   = "ab000001-0000-0000-0000-00000000000e"
+	exportUUIDCSV        = "ab000001-0000-0000-0000-00000000000f"
+	exportUUIDNotFound   = "ab000001-0000-0000-0000-000000000004"
+	exportUUIDForbidden  = "ab000001-0000-0000-0000-000000000007"
+	exportUUIDBadRequest = "ab000001-0000-0000-0000-000000000010"
+	exportUUIDGeneric    = "ab000001-0000-0000-0000-000000000001"
+)
+
 func TestExportCmd(t *testing.T) {
 	token := "abcdef01-23456789-abcdef01-23456789-abcdef01"
 
@@ -26,7 +40,7 @@ func TestExportCmd(t *testing.T) {
 		{
 			name: "VALID PDF EXPORT",
 			fields: fields{
-				args: "1234_pdf",
+				args: exportUUIDPDF,
 				flags: []string{
 					"--token", token,
 					"--format", "pdf",
@@ -39,7 +53,7 @@ func TestExportCmd(t *testing.T) {
 		{
 			name: "VALID JSON EXPORT FULL",
 			fields: fields{
-				args: "1234_json",
+				args: exportUUIDJSON,
 				flags: []string{
 					"--token", token,
 					"--format", "json",
@@ -53,7 +67,7 @@ func TestExportCmd(t *testing.T) {
 		{
 			name: "VALID MISP EXPORT",
 			fields: fields{
-				args: "1234_misp",
+				args: exportUUIDMISP,
 				flags: []string{
 					"--token", token,
 					"--format", "misp",
@@ -66,7 +80,7 @@ func TestExportCmd(t *testing.T) {
 		{
 			name: "VALID STIX EXPORT",
 			fields: fields{
-				args: "1234_stix",
+				args: exportUUIDSTIX,
 				flags: []string{
 					"--token", token,
 					"--format", "stix",
@@ -79,7 +93,7 @@ func TestExportCmd(t *testing.T) {
 		{
 			name: "VALID MARKDOWN EXPORT",
 			fields: fields{
-				args: "1234_markdown",
+				args: exportUUIDMarkdown,
 				flags: []string{
 					"--token", token,
 					"--format", "markdown",
@@ -92,7 +106,7 @@ func TestExportCmd(t *testing.T) {
 		{
 			name: "VALID CSV EXPORT",
 			fields: fields{
-				args: "1234_csv",
+				args: exportUUIDCSV,
 				flags: []string{
 					"--token", token,
 					"--format", "csv",
@@ -105,7 +119,7 @@ func TestExportCmd(t *testing.T) {
 		{
 			name: "MISSING FORMAT FLAG",
 			fields: fields{
-				args: "1234",
+				args: exportUUIDGeneric,
 				flags: []string{
 					"--token", token,
 					"--layout", "en",
@@ -116,7 +130,7 @@ func TestExportCmd(t *testing.T) {
 		{
 			name: "MISSING LAYOUT FLAG",
 			fields: fields{
-				args: "1234",
+				args: exportUUIDGeneric,
 				flags: []string{
 					"--token", token,
 					"--format", "json",
@@ -127,7 +141,7 @@ func TestExportCmd(t *testing.T) {
 		{
 			name: "NOT FOUND",
 			fields: fields{
-				args: "1234_not_found",
+				args: exportUUIDNotFound,
 				flags: []string{
 					"--token", token,
 					"--format", "json",
@@ -139,7 +153,7 @@ func TestExportCmd(t *testing.T) {
 		{
 			name: "FORBIDDEN",
 			fields: fields{
-				args: "1234_forbidden",
+				args: exportUUIDForbidden,
 				flags: []string{
 					"--token", token,
 					"--format", "json",
@@ -151,7 +165,7 @@ func TestExportCmd(t *testing.T) {
 		{
 			name: "BAD REQUEST",
 			fields: fields{
-				args: "1234_bad_request",
+				args: exportUUIDBadRequest,
 				flags: []string{
 					"--token", token,
 					"--format", "json",
@@ -186,49 +200,49 @@ func TestExportCmd(t *testing.T) {
 				layout := query.Get("layout")
 
 				switch {
-				case strings.Contains(req.URL.Path, "1234_pdf"):
+				case strings.Contains(req.URL.Path, exportUUIDPDF):
 					if format != "pdf" || layout != "en" {
 						t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 					}
 					rw.WriteHeader(http.StatusOK)
 					_, _ = rw.Write([]byte("%PDF-1.3\n"))
-				case strings.Contains(req.URL.Path, "1234_json"):
+				case strings.Contains(req.URL.Path, exportUUIDJSON):
 					if format != "json" || layout != "fr" {
 						t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 					}
 					rw.WriteHeader(http.StatusOK)
 					_, _ = rw.Write([]byte(`{"verdict":"malicious","score":2800}`))
-				case strings.Contains(req.URL.Path, "1234_misp"):
+				case strings.Contains(req.URL.Path, exportUUIDMISP):
 					if format != "misp" || layout != "en" {
 						t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 					}
 					rw.WriteHeader(http.StatusOK)
 					_, _ = rw.Write([]byte(`{"Event":{"uuid":"test"}}`))
-				case strings.Contains(req.URL.Path, "1234_stix"):
+				case strings.Contains(req.URL.Path, exportUUIDSTIX):
 					if format != "stix" {
 						t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 					}
 					rw.WriteHeader(http.StatusOK)
 					_, _ = rw.Write([]byte(`{"type":"bundle"}`))
-				case strings.Contains(req.URL.Path, "1234_markdown"):
+				case strings.Contains(req.URL.Path, exportUUIDMarkdown):
 					if format != "markdown" {
 						t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 					}
 					rw.WriteHeader(http.StatusOK)
 					_, _ = rw.Write([]byte("# GMalware submission report\n"))
-				case strings.Contains(req.URL.Path, "1234_csv"):
+				case strings.Contains(req.URL.Path, exportUUIDCSV):
 					if format != "csv" {
 						t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 					}
 					rw.WriteHeader(http.StatusOK)
 					_, _ = rw.Write([]byte("name,sha256,size\n"))
-				case strings.Contains(req.URL.Path, "1234_not_found"):
+				case strings.Contains(req.URL.Path, exportUUIDNotFound):
 					rw.WriteHeader(http.StatusNotFound)
 					_, _ = rw.Write([]byte(`{"status":false,"error":"not found"}`))
-				case strings.Contains(req.URL.Path, "1234_forbidden"):
+				case strings.Contains(req.URL.Path, exportUUIDForbidden):
 					rw.WriteHeader(http.StatusForbidden)
 					_, _ = rw.Write([]byte(`{"status":false,"error":"forbidden"}`))
-				case strings.Contains(req.URL.Path, "1234_bad_request"):
+				case strings.Contains(req.URL.Path, exportUUIDBadRequest):
 					rw.WriteHeader(http.StatusBadRequest)
 					_, _ = rw.Write([]byte(`{"status":false,"error":"bad request"}`))
 				default:
@@ -301,7 +315,7 @@ func TestExportCmdWithOutputFile(t *testing.T) {
 	cmd.SetErr(bufErr)
 
 	args := []string{
-		"go-gdetect", "export", "1234_json",
+		"go-gdetect", "export", exportUUIDJSON,
 		"--token", token,
 		"--format", "json",
 		"--layout", "en",
