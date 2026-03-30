@@ -234,7 +234,7 @@ paths:
       description: |
         Exports a specific analysis result by giving its Uuid. \
         Exports Formats can be Misp, Stix, Json, Pdf, Markdown and Csv. \
-        Submitter must have the TODO permissions. \
+        The submitter must have the export permission on their profile. \
       parameters:
         - name: "UUID"
           in: path
@@ -737,6 +737,9 @@ components:
           $ref: "#/components/schemas/threats"
         special_status_code:
           $ref: "#/components/schemas/special_status_code"
+        comment:
+          type: string
+          description: optional user-supplied comment attached to the analysis
       required:
         - status
         - UUID
@@ -955,21 +958,23 @@ components:
         is_malware:
           $ref: "#/components/schemas/is_malware"
     av_results:
-      description: malware matches returns by probes, print av_result right required
-      type: object
-      properties:
-        av:
-          type: string
-          description: probe name
-          example: "GlimpsCorrelate"
-        result:
-          type: string
-          description: malware name indicated by probe
-          example: win_cybergate_auto
-        score:
-          type: integer
-          description: amount of point added by the probe
-          example: 1000
+      description: malware matches returned by probes; requires the av_result right
+      type: array
+      items:
+        type: object
+        properties:
+          av:
+            type: string
+            description: probe name
+            example: "GlimpsCorrelate"
+          result:
+            type: string
+            description: malware name indicated by probe
+            example: win_cybergate_auto
+          score:
+            type: integer
+            description: amount of point added by the probe
+            example: 1000
     view_token:
       description: token that can be used to view analysis result in expert view
       type: string
@@ -1043,7 +1048,10 @@ components:
       description: status of a profile
       properties:
         daily_quota:
-          $ref: "../../../shared/schemas.yml#/components/schemas/daily_quota"
+          type: integer
+          description: |
+            Maximum number of submissions allowed in a 24-hour period.
+            0 => unlimited.
         available_daily_quota:
           type: integer
           description: |
@@ -1273,7 +1281,8 @@ components:
           "daily_quota": 100000,
           "available_daily_quota": 100000,
           "cache": true,
-          "estimated_analysis_duration": 2080
+          "estimated_analysis_duration": 2080,
+          "malware_threshold": 1000
         }
     dynamicProfileStatus:
       value: |
@@ -1281,7 +1290,8 @@ components:
           "daily_quota": 1000,
           "available_daily_quota": 950,
           "cache": false,
-          "estimated_analysis_duration": 208000
+          "estimated_analysis_duration": 208000,
+          "malware_threshold": 800
         }
     fullAnalysisMalware:
       value: |

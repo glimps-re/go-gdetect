@@ -7,13 +7,13 @@
 
 A Go Client and a library for Glimps Malware detect API.
 
-go-gdetect is a solution from GLIMPS *Inc.* for a better detection of malware. Contact us at contact@glimps.re for more information !  
+go-gdetect is a solution from GLIMPS *Inc.* for a better detection of malware. Contact us at contact@glimps.re for more information !
 
 ## Description
 
-go-gdetect aims to simplify use of *Glimps Detect*, a malware detectio solution from GLIMPS *Inc.*.
+go-gdetect aims to simplify the use of *Glimps Detect*, a malware detection solution from GLIMPS *Inc.*.
 
-This tool can be used by two ways:
+This tool can be used in two ways:
 
 * As *shell* CLI: `./go-gdetect /path/to/my/binary`
 * As go library (see below).
@@ -23,9 +23,9 @@ This tool can be used by two ways:
 
 ### As shell *CLI* tools
 
-Before launch the tool, you can set the path to your GDetect URL and your authentication token into environment variables with:
+Before launching the tool, you can set the path to your GDetect URL and your authentication token into environment variables with:
 
-`export API_URL=https://my.gdetect.service.tld` for the URL;  
+`export API_URL=https://my.gdetect.service.tld` for the URL;
 `export API_TOKEN=abcdef01-23456789-abcdef01-23456789-abcdef01` for the token.
 
 You can use *go-gdetect* in your shell like this:
@@ -78,7 +78,9 @@ The `export` command allows you to export analysis results in various formats:
 
 ### As a go library
 
-You can perform API call using `Client` from `github.com/glimps-re/go-gdetect/pkg/gdetect`.
+Requires Go 1.24 or later.
+
+You can perform API calls using `Client` from `github.com/glimps-re/go-gdetect/pkg/gdetect`.
 
 ```bash
 go get github.com/glimps-re/go-gdetect
@@ -95,13 +97,16 @@ import (
 )
 
 func main() {
- client, err := gdetect.NewClient("https://my.gdetect.service.tld", "abcdef01-23456789-abcdef01-23456789-abcdef01", false, nil)
+ client, err := gdetect.NewClientFromConfig(gdetect.ClientConfig{
+  Endpoint: "https://my.gdetect.service.tld",
+  Token:    "abcdef01-23456789-abcdef01-23456789-abcdef01",
+ })
  if err != nil {
   return
  }
 
  // Get analysis result
- result, err := client.GetResultByUUID(context.Background(), "1234")
+ result, err := client.GetResultByUUID(context.Background(), "9618ae7e-e284-405d-8998-ff1e12c7ca27")
  if err != nil {
   return
  }
@@ -113,14 +118,35 @@ func main() {
   Layout: gdetect.ExportLayoutEN,
   Full:   false,
  }
- data, err := client.ExportResult(context.Background(), "1234", exportOptions)
+ data, err := client.ExportResult(context.Background(), "9618ae7e-e284-405d-8998-ff1e12c7ca27", exportOptions)
  if err != nil {
   return
  }
- // Save to file
- os.WriteFile("report.pdf", data, 0644)
+ // Save to file with secure permissions
+ os.WriteFile("report.pdf", data, 0o600)
 }
+```
 
+#### SynDetect mode
+
+The library also supports the SynDetect API variant (a limited subset of Detect). Pass
+`Syndetect: true` in `ClientConfig` to activate it. Note that some fields (e.g. `UUID`,
+`Threats`) behave differently in SynDetect mode.
+
+#### Testing with the mock package
+
+`github.com/glimps-re/go-gdetect/pkg/gdetect/mock` provides `MockGDetectSubmitter`, a
+configurable test double that implements `gdetect.ControllerExtendedGDetectSubmitter`.
+Set only the method fields your test needs; unset methods panic with a clear message.
+
+```go
+import gdetectmock "github.com/glimps-re/go-gdetect/pkg/gdetect/mock"
+
+m := &gdetectmock.MockGDetectSubmitter{
+    GetResultByUUIDMock: func(ctx context.Context, uuid string) (gdetect.Result, error) {
+        return gdetect.Result{Done: true, SHA256: "abc..."}, nil
+    },
+}
 ```
 
 ## Support
