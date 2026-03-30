@@ -27,7 +27,7 @@ type MockGDetectSubmitter struct {
 
 var (
 	_ gdetect.ExtendedGDetectSubmitter           = &MockGDetectSubmitter{}
-	_ gdetect.ControllerExtendedGdetectSubmitter = &MockGDetectSubmitter{}
+	_ gdetect.ControllerExtendedGDetectSubmitter = &MockGDetectSubmitter{}
 )
 
 func (m *MockGDetectSubmitter) GetResultByUUID(ctx context.Context, uuid string) (result gdetect.Result, err error) {
