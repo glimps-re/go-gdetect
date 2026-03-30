@@ -67,14 +67,14 @@ instruct the server to hold the connection open until the analysis is complete:
 # Immediate retrieval (returns done=false if analysis is still running)
 ./go-gdetect get <UUID>
 
-# Block for up to 60 seconds waiting for the result
-./go-gdetect get <UUID> --wait 60
+# Block for up to 30 seconds waiting for the result
+./go-gdetect get <UUID> --wait 30
 
 # Also print Expert View and Token View URLs
 ./go-gdetect get <UUID> --retrieve-urls
 ```
 
-The `--wait` value must be between 0 and 300 (seconds). When `--wait 0` (default),
+The `--wait` value must be between 0 and 59 seconds (inclusive). When `--wait 0` (default),
 the server responds immediately. The wait parameter is only used in Detect mode;
 in SynDetect mode it has no effect.
 

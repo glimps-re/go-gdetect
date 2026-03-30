@@ -24,7 +24,6 @@ func compareClients(c1 *Client, c2 *Client) (equal bool) {
 
 var token = "abcdef01-23456789-abcdef01-23456789-abcdef01"
 
-// Test UUID constants in standard UUID format (8-4-4-4-12 hex chars).
 const (
 	testUUIDValid      = "ab000001-0000-0000-0000-000000000001"
 	testUUIDValid2     = "ab000001-0000-0000-0000-000000000002"
@@ -44,7 +43,6 @@ const (
 	testUUIDBadRequest = "ab000001-0000-0000-0000-000000000010"
 )
 
-// Test SHA256 constants (64 hex chars).
 const (
 	testSHA256Valid     = "ab00000100000000000000000000000000000000000000000000000000000001"
 	testSHA256NotFound  = "ab00000100000000000000000000000000000000000000000000000000000004"
@@ -167,6 +165,7 @@ func TestClient_SubmitFile(t *testing.T) {
 		bypassCache      bool
 		archive_password string
 		filename         string
+		dynamic          bool
 	}
 
 	filepath := "../../tests/samples/false_mirai"
@@ -258,6 +257,42 @@ func TestClient_SubmitFile(t *testing.T) {
 			wantErr: true,
 			timeout: time.Millisecond * 5,
 		},
+		{
+			name: "DYNAMIC SUBMIT",
+			args: args{
+				ctx:         context.Background(),
+				filepath:    filepath,
+				description: "dynamic submit",
+				dynamic:     true,
+			},
+			wantErr:  false,
+			wantUUID: "dynamic-uuid",
+		},
+		{
+			name: "NON DYNAMIC SUBMIT",
+			args: args{
+				ctx:         context.Background(),
+				filepath:    filepath,
+				description: "non dynamic submit",
+				dynamic:     false,
+			},
+			wantErr:  false,
+			wantUUID: "non-dynamic-uuid",
+		},
+		{
+			name: "DYNAMIC WITH ALL OPTIONS",
+			args: args{
+				ctx:              context.Background(),
+				filepath:         filepath,
+				description:      "dynamic all options",
+				tags:             []string{"tag1", "tag2"},
+				bypassCache:      true,
+				archive_password: "pass",
+				dynamic:          true,
+			},
+			wantErr:  false,
+			wantUUID: "dynamic-all-uuid",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -330,6 +365,44 @@ func TestClient_SubmitFile(t *testing.T) {
 							t.Fatalf("cannot write test response: %s", err)
 						}
 						return
+					case "dynamic submit":
+						// Verify dynamic=true query parameter is present
+						if req.URL.Query().Get("dynamic") != "true" {
+							t.Errorf("handler.SubmitFile() %v: expected dynamic=true query param, got %q", tt.name, req.URL.Query().Get("dynamic"))
+						}
+						_, err := rw.Write([]byte(`{"status": true, "uuid": "dynamic-uuid"}`))
+						if err != nil {
+							t.Fatalf("cannot write test response: %s", err)
+						}
+					case "non dynamic submit":
+						// Verify dynamic query parameter is absent
+						if req.URL.Query().Has("dynamic") {
+							t.Errorf("handler.SubmitFile() %v: unexpected dynamic query param: %q", tt.name, req.URL.Query().Get("dynamic"))
+						}
+						_, err := rw.Write([]byte(`{"status": true, "uuid": "non-dynamic-uuid"}`))
+						if err != nil {
+							t.Fatalf("cannot write test response: %s", err)
+						}
+					case "dynamic all options":
+						// Verify dynamic=true query parameter is present
+						if req.URL.Query().Get("dynamic") != "true" {
+							t.Errorf("handler.SubmitFile() %v: expected dynamic=true query param, got %q", tt.name, req.URL.Query().Get("dynamic"))
+						}
+						// Verify all other form fields are present
+						if err := req.ParseMultipartForm(4096); err != nil {
+							t.Fatalf("cannot parse multipart form: %s", err)
+						}
+						switch {
+						case req.FormValue("bypass-cache") != "true",
+							req.FormValue("description") != "dynamic all options",
+							req.FormValue("tags") != "tag1,tag2",
+							req.FormValue("archive_password") != "pass":
+							t.Errorf("handler.SubmitFile() %v: unexpected form values", tt.name)
+						}
+						_, err := rw.Write([]byte(`{"status": true, "uuid": "dynamic-all-uuid"}`))
+						if err != nil {
+							t.Fatalf("cannot write test response: %s", err)
+						}
 					default:
 						t.Errorf("handler.SubmitFile() %v error = unexpected file description: %v", tt.name, strings.TrimSpace(req.FormValue("description")))
 					}
@@ -354,6 +427,7 @@ func TestClient_SubmitFile(t *testing.T) {
 				BypassCache:     tt.args.bypassCache,
 				Filename:        tt.args.filename,
 				ArchivePassword: tt.args.archive_password,
+				Dynamic:         tt.args.dynamic,
 			}
 
 			gotUUID, err := client.SubmitFile(tt.args.ctx, tt.args.filepath, submitOptions)
@@ -375,12 +449,22 @@ func TestClient_GetResultByUUID(t *testing.T) {
 		uuid string
 	}
 	tests := []struct {
-		name       string
-		args       args
-		wantResult Result
-		wantErr    bool
-		timeout    time.Duration
+		name            string
+		args            args
+		wantResult      Result
+		wantErr         bool
+		wantSpecificErr error
+		timeout         time.Duration
 	}{
+		{
+			name: "ko invalid UUID",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "not-a-valid-uuid",
+			},
+			wantErr:         true,
+			wantSpecificErr: ErrInvalidUUID,
+		},
 		{
 			name: "VALID",
 			args: args{
@@ -489,6 +573,10 @@ func TestClient_GetResultByUUID(t *testing.T) {
 				t.Errorf("Client.GetResultByUUID() error = %v, wantErr = %t", err, tt.wantErr)
 				return
 			}
+			if tt.wantSpecificErr != nil && !errors.Is(err, tt.wantSpecificErr) {
+				t.Errorf("Client.GetResultByUUID() error = %v, want %v", err, tt.wantSpecificErr)
+				return
+			}
 			if !reflect.DeepEqual(gotResult, tt.wantResult) {
 				t.Errorf("Client.GetResultByUUID() got = %+v, want = %+v", gotResult, tt.wantResult)
 			}
@@ -503,12 +591,22 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		args       args
-		wantResult Result
-		wantErr    bool
-		timeout    time.Duration
+		name            string
+		args            args
+		wantResult      Result
+		wantErr         bool
+		wantSpecificErr error
+		timeout         time.Duration
 	}{
+		{
+			name: "ko invalid SHA256",
+			args: args{
+				ctx:    context.Background(),
+				sha256: "not-a-valid-sha256",
+			},
+			wantErr:         true,
+			wantSpecificErr: ErrInvalidSHA256,
+		},
 		{
 			name: "VALID",
 			args: args{
@@ -630,6 +728,10 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 				t.Errorf("Client.GetResultBySHA256() error = %v, wantErr = %t", err, tt.wantErr)
 				return
 			}
+			if tt.wantSpecificErr != nil && !errors.Is(err, tt.wantSpecificErr) {
+				t.Errorf("Client.GetResultBySHA256() error = %v, want %v", err, tt.wantSpecificErr)
+				return
+			}
 			if !reflect.DeepEqual(gotResult, tt.wantResult) {
 				t.Errorf("Client.GetResultBySHA256() = %+v, want %+v", gotResult, tt.wantResult)
 			}
@@ -638,6 +740,9 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 }
 
 func TestClient_WaitForFile(t *testing.T) {
+	type fields struct {
+		syndetect bool
+	}
 	type args struct {
 		ctx         context.Context
 		filepath    string
@@ -650,48 +755,12 @@ func TestClient_WaitForFile(t *testing.T) {
 	}
 	tests := []struct {
 		name       string
+		fields     fields
 		args       args
 		wantResult Result
 		wantErr    bool
 		timeout    time.Duration
 	}{
-		{
-			name: "VALID",
-			args: args{
-				ctx:         context.Background(),
-				filepath:    "../../tests/samples/false_mirai",
-				params:      []int{1},
-				timeout:     180 * time.Second,
-				pullTime:    15 * time.Millisecond,
-				bypassCache: true,
-			},
-			wantResult: Result{UUID: testUUIDValid, Done: true},
-			wantErr:    false,
-		},
-		{
-			name: "VALID WITH PREGET",
-			args: args{
-				ctx:      context.Background(),
-				filepath: "../../tests/samples/false_cryptolocker",
-				params:   []int{1},
-				timeout:  180 * time.Second,
-				pullTime: 15 * time.Millisecond,
-			},
-			wantResult: Result{UUID: testUUIDWaitPoll, Done: true},
-			wantErr:    false,
-		},
-		{
-			name: "VALID PREGET NOT FOUND",
-			args: args{
-				ctx:      context.Background(),
-				filepath: "../../tests/samples/false_mirai",
-				params:   []int{1},
-				timeout:  180 * time.Second,
-				pullTime: 15 * time.Millisecond,
-			},
-			wantResult: Result{UUID: testUUIDValid, Done: true},
-			wantErr:    false,
-		},
 		{
 			name: "TIMEOUT",
 			args: args{
@@ -703,16 +772,121 @@ func TestClient_WaitForFile(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "TIMEOUT syndetect",
+			fields: fields{
+				syndetect: true,
+			},
+			args: args{
+				ctx:         context.Background(),
+				filepath:    "../../tests/samples/false_cryptolocker",
+				params:      []int{1},
+				timeout:     time.Millisecond * 15,
+				bypassCache: true,
+			},
+			wantErr: true,
+		},
+		{
+			name: "VALID",
+			args: args{
+				ctx:         context.Background(),
+				filepath:    "../../tests/samples/false_mirai",
+				params:      []int{1},
+				timeout:     180 * time.Second,
+				pullTime:    15 * time.Millisecond,
+				bypassCache: true,
+			},
+			wantResult: Result{UUID: testUUIDValid, Done: true},
+		},
+		{
+			name: "VALID WITH PREGET",
+			args: args{
+				ctx:      context.Background(),
+				filepath: "../../tests/samples/false_cryptolocker",
+				params:   []int{1},
+				timeout:  180 * time.Second,
+				pullTime: 15 * time.Millisecond,
+			},
+			wantResult: Result{UUID: testUUIDWaitPoll, Done: true},
+		},
+		{
+			name: "VALID PREGET NOT FOUND",
+			args: args{
+				ctx:      context.Background(),
+				filepath: "../../tests/samples/false_mirai",
+				params:   []int{1},
+				timeout:  180 * time.Second,
+				pullTime: 15 * time.Millisecond,
+			},
+			wantResult: Result{UUID: testUUIDValid, Done: true},
+		},
+		{
+			name: "VALID syndetect",
+			fields: fields{
+				syndetect: true,
+			},
+			args: args{
+				ctx:         context.Background(),
+				filepath:    "../../tests/samples/false_mirai",
+				params:      []int{1},
+				timeout:     180 * time.Second,
+				pullTime:    15 * time.Millisecond,
+				bypassCache: true,
+			},
+			wantResult: Result{UUID: testUUIDValid, ID: testUUIDValid, Done: true},
+		},
+		{
+			name: "VALID syndetect use cache",
+			fields: fields{
+				syndetect: true,
+			},
+			args: args{
+				ctx:      context.Background(),
+				filepath: "../../tests/samples/false_mirai",
+				params:   []int{1},
+				timeout:  180 * time.Second,
+				pullTime: 15 * time.Millisecond,
+			},
+			wantResult: Result{UUID: testUUIDValid, Done: true},
+		},
+		{
+			name: "VALID syndetect use cache not done",
+			fields: fields{
+				syndetect: true,
+			},
+			args: args{
+				ctx:      context.Background(),
+				filepath: "../../tests/samples/false_cryptolocker",
+				params:   []int{1},
+				timeout:  180 * time.Second,
+				pullTime: 15 * time.Millisecond,
+			},
+			wantResult: Result{UUID: testUUIDValid, ID: testUUIDValid, Done: true},
+		},
 	}
+	// SHA256 hashes of the sample files used for pre-get/search paths.
+	const (
+		sha256FalseCryptolocker = "6fd51ba6957be10585068b68ab4a0683759436c3eb7cb426668773cdd7b70551"
+		sha256FalseMirai        = "6ae8a75555209fd6c44157c0aed8016e763ff435a19cf186f76863140143ff72"
+	)
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			apiPrefix := "/api/lite/v2/"
+			uuidField := "uuid"
+			if tt.fields.syndetect {
+				apiPrefix = "/api/v1/"
+				uuidField = "id"
+			}
+
 			s := httptest.NewServer(
 				http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 					if req.Header.Get("X-Auth-Token") != token {
 						t.Errorf("handler.WaitForFile() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
 					}
-					switch strings.TrimSpace(req.URL.Path) {
-					case "/api/lite/v2/submit":
+					uri := strings.TrimSpace(req.URL.Path)
+					switch {
+					case uri == apiPrefix+"submit":
 						if req.Method != http.MethodPost {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
@@ -727,41 +901,42 @@ func TestClient_WaitForFile(t *testing.T) {
 						}
 						switch h.Filename {
 						case "false_mirai":
-							_, err = rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true}`))
+							_, err = rw.Write([]byte(`{"` + uuidField + `":"` + testUUIDValid + `", "status": true}`))
 							if err != nil {
 								t.Fatalf("cannot write test response: %s", err)
 							}
 						case "false_cryptolocker":
-							_, err = rw.Write([]byte(`{"uuid":"` + testUUIDNeverDone + `", "status": true}`))
+							_, err = rw.Write([]byte(`{"` + uuidField + `":"` + testUUIDNeverDone + `", "status": true}`))
 							if err != nil {
 								t.Fatalf("cannot write test response: %s", err)
 							}
 						}
-					case "/api/lite/v2/results/" + testUUIDValid:
+					case uri == apiPrefix+"results/"+testUUIDValid:
 						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"` + uuidField + `":"` + testUUIDValid + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/results/" + testUUIDWaitPoll:
+					case uri == apiPrefix+"results/"+testUUIDWaitPoll:
 						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDWaitPoll + `", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"` + uuidField + `":"` + testUUIDWaitPoll + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/results/" + testUUIDNeverDone:
+					case uri == apiPrefix+"results/"+testUUIDNeverDone:
 						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": false}`))
+						_, err := rw.Write([]byte(`{"` + uuidField + `":"` + testUUIDValid + `", "status": true, "done": false}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/search/6fd51ba6957be10585068b68ab4a0683759436c3eb7cb426668773cdd7b70551":
+					// Pre-get search: detect uses /search/, syndetect uses /results/
+					case !tt.fields.syndetect && uri == apiPrefix+"search/"+sha256FalseCryptolocker:
 						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
@@ -769,13 +944,29 @@ func TestClient_WaitForFile(t *testing.T) {
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/search/6ae8a75555209fd6c44157c0aed8016e763ff435a19cf186f76863140143ff72":
+					case !tt.fields.syndetect && uri == apiPrefix+"search/"+sha256FalseMirai:
 						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
 						rw.WriteHeader(http.StatusNotFound)
+					case tt.fields.syndetect && uri == apiPrefix+"results/"+sha256FalseMirai:
+						if req.Method != http.MethodGet {
+							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
+						}
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`))
+						if err != nil {
+							t.Fatalf("cannot write test response: %s", err)
+						}
+					case tt.fields.syndetect && uri == apiPrefix+"results/"+sha256FalseCryptolocker:
+						if req.Method != http.MethodGet {
+							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
+						}
+						_, err := rw.Write([]byte(`{"` + uuidField + `":"` + testUUIDValid + `", "done": false}`))
+						if err != nil {
+							t.Fatalf("cannot write test response: %s", err)
+						}
 					default:
-						t.Errorf("handler.WaitForFile() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
+						t.Errorf("handler.WaitForFile() %v error = unexpected URL: %v", tt.name, uri)
 					}
 				}),
 			)
@@ -785,6 +976,9 @@ func TestClient_WaitForFile(t *testing.T) {
 			if err != nil {
 				return
 			}
+			if tt.fields.syndetect {
+				client.SetSyndetect()
+			}
 			if tt.timeout != 0 {
 				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
 				defer cancel()
@@ -792,11 +986,13 @@ func TestClient_WaitForFile(t *testing.T) {
 			}
 
 			waitForOptions := WaitForOptions{
-				Tags:        tt.args.tags,
-				Description: tt.args.description,
-				BypassCache: tt.args.bypassCache,
-				Timeout:     tt.args.timeout,
-				PullTime:    tt.args.pullTime,
+				SubmitOptions: SubmitOptions{
+					Tags:        tt.args.tags,
+					Description: tt.args.description,
+					BypassCache: tt.args.bypassCache,
+				},
+				Timeout:  tt.args.timeout,
+				PullTime: tt.args.pullTime,
 			}
 
 			gotResult, err := client.WaitForFile(tt.args.ctx, tt.args.filepath, waitForOptions)
@@ -819,18 +1015,21 @@ func TestClient_WaitForReader(t *testing.T) {
 	}
 	type args struct {
 		content     string
+		reader      io.Reader
 		tags        []string
 		description string
 		bypassCache bool
+		dynamic     bool
 		timeout     time.Duration
 		pullTime    time.Duration
 	}
 	tests := []struct {
-		name       string
-		args       args
-		fields     fields
-		wantResult Result
-		wantErr    bool
+		name             string
+		args             args
+		fields           fields
+		wantResult       Result
+		wantErr          bool
+		wantDynamicParam string
 	}{
 		{
 			name: "VALID",
@@ -870,6 +1069,15 @@ func TestClient_WaitForReader(t *testing.T) {
 			wantErr:    false,
 		},
 		{
+			name: "ko error reader",
+			args: args{
+				reader:   ErrorReader{err: errors.New("read error")},
+				timeout:  5 * time.Second,
+				pullTime: 10 * time.Millisecond,
+			},
+			wantErr: true,
+		},
+		{
 			name: "TIMEOUT",
 			fields: fields{
 				searchNotDone:       true,
@@ -882,9 +1090,32 @@ func TestClient_WaitForReader(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "ok dynamic true propagated",
+			args: args{
+				content:     "dynamic true",
+				timeout:     5 * time.Second,
+				pullTime:    10 * time.Millisecond,
+				bypassCache: true,
+				dynamic:     true,
+			},
+			wantResult:       Result{UUID: testUUIDValid, Done: true},
+			wantDynamicParam: "true",
+		},
+		{
+			name: "ok dynamic false not propagated",
+			args: args{
+				content:     "dynamic false",
+				timeout:     5 * time.Second,
+				pullTime:    10 * time.Millisecond,
+				bypassCache: true,
+			},
+			wantResult: Result{UUID: testUUIDValid, Done: true},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			gotDynamicParam := ""
 			s := httptest.NewServer(
 				http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 					if req.Header.Get("X-Auth-Token") != token {
@@ -893,6 +1124,7 @@ func TestClient_WaitForReader(t *testing.T) {
 					uri := strings.TrimSpace(req.URL.Path)
 					switch {
 					case uri == "/api/lite/v2/submit":
+						gotDynamicParam = req.URL.Query().Get("dynamic")
 						if req.Method != http.MethodPost {
 							t.Errorf("handler.WaitForReader() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
@@ -973,14 +1205,22 @@ func TestClient_WaitForReader(t *testing.T) {
 				return
 			}
 			waitForOptions := WaitForOptions{
-				Tags:        tt.args.tags,
-				Description: tt.args.description,
-				BypassCache: tt.args.bypassCache,
-				Timeout:     tt.args.timeout,
-				PullTime:    tt.args.pullTime,
+				SubmitOptions: SubmitOptions{
+					Tags:        tt.args.tags,
+					Description: tt.args.description,
+					BypassCache: tt.args.bypassCache,
+					Dynamic:     tt.args.dynamic,
+				},
+				Timeout:  tt.args.timeout,
+				PullTime: tt.args.pullTime,
 			}
 
-			gotResult, err := client.WaitForReader(t.Context(), strings.NewReader(tt.args.content), waitForOptions)
+			reader := tt.args.reader
+			if reader == nil {
+				reader = strings.NewReader(tt.args.content)
+			}
+
+			gotResult, err := client.WaitForReader(t.Context(), reader, waitForOptions)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.WaitForReader() error = %v, wantErr = %t", err, tt.wantErr)
 				return
@@ -988,175 +1228,8 @@ func TestClient_WaitForReader(t *testing.T) {
 			if !reflect.DeepEqual(gotResult, tt.wantResult) {
 				t.Errorf("Client.WaitForReader() = %+v, want %+v", gotResult, tt.wantResult)
 			}
-		})
-	}
-}
-
-func TestClient_WaitForFile_Syndetect(t *testing.T) {
-	type args struct {
-		ctx         context.Context
-		filepath    string
-		tags        []string
-		description string
-		bypassCache bool
-		timeout     time.Duration
-		params      []int
-		pullTime    time.Duration
-	}
-	tests := []struct {
-		name       string
-		args       args
-		wantResult Result
-		wantErr    bool
-		timeout    time.Duration
-	}{
-		{
-			name: "VALID",
-			args: args{
-				ctx:         context.Background(),
-				filepath:    "../../tests/samples/false_mirai",
-				params:      []int{1},
-				timeout:     180 * time.Second,
-				pullTime:    15 * time.Millisecond,
-				bypassCache: true,
-			},
-			wantResult: Result{UUID: testUUIDValid, ID: testUUIDValid, Done: true},
-			wantErr:    false,
-		},
-		{
-			name: "VALID USE CACHE",
-			args: args{
-				ctx:      context.Background(),
-				filepath: "../../tests/samples/false_mirai",
-				params:   []int{1},
-				timeout:  180 * time.Second,
-				pullTime: 15 * time.Millisecond,
-			},
-			wantResult: Result{UUID: testUUIDValid, Done: true},
-			wantErr:    false,
-		},
-		{
-			name: "VALID USE CACHE NOT DONE",
-			args: args{
-				ctx:      context.Background(),
-				filepath: "../../tests/samples/false_cryptolocker",
-				params:   []int{1},
-				timeout:  180 * time.Second,
-				pullTime: 15 * time.Millisecond,
-			},
-			wantResult: Result{UUID: testUUIDValid, ID: testUUIDValid, Done: true},
-			wantErr:    false,
-		},
-		{
-			name: "TIMEOUT",
-			args: args{
-				ctx:         context.Background(),
-				filepath:    "../../tests/samples/false_cryptolocker",
-				params:      []int{1},
-				timeout:     time.Millisecond * 15,
-				bypassCache: true,
-			},
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := httptest.NewServer(
-				http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-					if req.Header.Get("X-Auth-Token") != token {
-						t.Errorf("handler.WaitForFile() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
-					}
-					switch strings.TrimSpace(req.URL.Path) {
-					case "/api/v1/submit":
-						if req.Method != http.MethodPost {
-							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
-						}
-						req.Body = http.MaxBytesReader(rw, req.Body, 10*1024*1024)
-						if err := req.ParseMultipartForm(4096); err != nil {
-							http.NotFoundHandler().ServeHTTP(rw, req)
-							return
-						}
-						_, h, err := req.FormFile("file")
-						if err != nil {
-							return
-						}
-						switch h.Filename {
-						case "false_mirai":
-							_, err := rw.Write([]byte(`{"id":"` + testUUIDValid + `", "status": true}`))
-							if err != nil {
-								t.Fatalf("cannot write test response: %s", err)
-							}
-						case "false_cryptolocker":
-							_, err := rw.Write([]byte(`{"id":"` + testUUIDNeverDone + `", "status": true}`))
-							if err != nil {
-								t.Fatalf("cannot write test response: %s", err)
-							}
-						}
-					case "/api/v1/results/" + testUUIDValid:
-						if req.Method != http.MethodGet {
-							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
-						}
-						_, err := rw.Write([]byte(`{"id":"` + testUUIDValid + `", "status": true, "done": true}`))
-						if err != nil {
-							t.Fatalf("cannot write test response: %s", err)
-						}
-					case "/api/v1/results/" + testUUIDNeverDone:
-						if req.Method != http.MethodGet {
-							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
-						}
-						_, err := rw.Write([]byte(`{"id":"` + testUUIDValid + `", "status": true, "done": false}`))
-						if err != nil {
-							t.Fatalf("cannot write test response: %s", err)
-						}
-					case "/api/v1/results/6ae8a75555209fd6c44157c0aed8016e763ff435a19cf186f76863140143ff72":
-						if req.Method != http.MethodGet {
-							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
-						}
-						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`))
-						if err != nil {
-							t.Fatalf("cannot write test response: %s", err)
-						}
-					case "/api/v1/results/6fd51ba6957be10585068b68ab4a0683759436c3eb7cb426668773cdd7b70551":
-						if req.Method != http.MethodGet {
-							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
-						}
-						_, err := rw.Write([]byte(`{"id":"` + testUUIDValid + `", "done": false}`))
-						if err != nil {
-							t.Fatalf("cannot write test response: %s", err)
-						}
-					default:
-						t.Errorf("handler.WaitForFile() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
-					}
-				}),
-			)
-			defer s.Close()
-
-			client, err := NewClient(s.URL, token, false, nil)
-			if err != nil {
-				return
-			}
-			client.SetSyndetect()
-			if tt.timeout != 0 {
-				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
-				defer cancel()
-				tt.args.ctx = ctx
-			}
-
-			waitForOptions := WaitForOptions{
-				Tags:        tt.args.tags,
-				Description: tt.args.description,
-				BypassCache: tt.args.bypassCache,
-				Timeout:     tt.args.timeout,
-				PullTime:    tt.args.pullTime,
-			}
-
-			gotResult, err := client.WaitForFile(tt.args.ctx, tt.args.filepath, waitForOptions)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Client.WaitForFile() error = %v, wantErr = %t", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(gotResult, tt.wantResult) {
-				t.Errorf("Client.WaitForFile() = %+v, want %+v", gotResult, tt.wantResult)
+			if tt.wantDynamicParam != gotDynamicParam {
+				t.Errorf("Client.WaitForReader() dynamic param = %q, want %q", gotDynamicParam, tt.wantDynamicParam)
 			}
 		})
 	}
@@ -1178,7 +1251,7 @@ func TestClient_ExtractTokenViewURL(t *testing.T) {
 		wantURLTokenView string
 		wantErr          bool
 	}{
-		{ //nolint:gosec,nolintlint // G101: "5678" is a test token value, not a real credential
+		{ //nolint:gosec,nolintlint // G101: test token value, not a real credential
 			name: "VALID",
 			fields: fields{
 				Endpoint: "http://gdetect/api",
@@ -1333,13 +1406,23 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 		uuid string
 	}
 	tests := []struct {
-		name       string
-		fields     fields
-		args       args
-		wantResult any
-		wantErr    bool
-		timeout    time.Duration
+		name            string
+		fields          fields
+		args            args
+		wantResult      any
+		wantErr         bool
+		wantSpecificErr error
+		timeout         time.Duration
 	}{
+		{
+			name: "ko invalid UUID",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "not-a-valid-uuid",
+			},
+			wantErr:         true,
+			wantSpecificErr: ErrInvalidUUID,
+		},
 		{
 			name: "ERROR SYNDETECT",
 			fields: fields{
@@ -1452,6 +1535,10 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 			gotResult, err := client.GetFullSubmissionByUUID(tt.args.ctx, tt.args.uuid)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.GetFullSubmissionByUUID() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantSpecificErr != nil && !errors.Is(err, tt.wantSpecificErr) {
+				t.Errorf("Client.GetFullSubmissionByUUID() error = %v, want %v", err, tt.wantSpecificErr)
 				return
 			}
 			if !reflect.DeepEqual(gotResult, tt.wantResult) {
@@ -1945,13 +2032,27 @@ func TestClient_ExportResult(t *testing.T) {
 		options ExportOptions
 	}
 	tests := []struct {
-		name     string
-		fields   fields
-		args     args
-		wantData []byte
-		wantErr  bool
-		timeout  time.Duration
+		name            string
+		fields          fields
+		args            args
+		wantData        []byte
+		wantErr         bool
+		wantSpecificErr error
+		timeout         time.Duration
 	}{
+		{
+			name: "ko invalid UUID",
+			args: args{
+				ctx:  context.Background(),
+				uuid: "not-a-valid-uuid",
+				options: ExportOptions{
+					Format: ExportFormatJSON,
+					Layout: ExportLayoutEN,
+				},
+			},
+			wantErr:         true,
+			wantSpecificErr: ErrInvalidUUID,
+		},
 		{
 			name: "VALID PDF EXPORT",
 			args: args{
@@ -2205,6 +2306,10 @@ func TestClient_ExportResult(t *testing.T) {
 				t.Errorf("Client.ExportResult() error = %v, wantErr = %t", err, tt.wantErr)
 				return
 			}
+			if tt.wantSpecificErr != nil && !errors.Is(err, tt.wantSpecificErr) {
+				t.Errorf("Client.ExportResult() error = %v, want %v", err, tt.wantSpecificErr)
+				return
+			}
 			if !tt.wantErr && !reflect.DeepEqual(gotData, tt.wantData) {
 				t.Errorf("Client.ExportResult() = %v, want %v", string(gotData), string(tt.wantData))
 			}
@@ -2304,65 +2409,6 @@ func TestGetPath(t *testing.T) {
 	}
 }
 
-func TestGetResultByUUID_InvalidUUID(t *testing.T) {
-	client, err := NewClient("http://example.com", token, false, nil)
-	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
-	}
-	_, err = client.GetResultByUUID(context.Background(), "not-a-valid-uuid")
-	if err == nil {
-		t.Error("GetResultByUUID() with invalid UUID should return error")
-	}
-	if !errors.Is(err, ErrInvalidUUID) {
-		t.Errorf("GetResultByUUID() error = %v, want ErrInvalidUUID", err)
-	}
-}
-
-func TestGetResultBySHA256_InvalidSHA256(t *testing.T) {
-	client, err := NewClient("http://example.com", token, false, nil)
-	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
-	}
-	_, err = client.GetResultBySHA256(context.Background(), "not-a-valid-sha256")
-	if err == nil {
-		t.Error("GetResultBySHA256() with invalid SHA256 should return error")
-	}
-	if !errors.Is(err, ErrInvalidSHA256) {
-		t.Errorf("GetResultBySHA256() error = %v, want ErrInvalidSHA256", err)
-	}
-}
-
-func TestGetFullSubmissionByUUID_InvalidUUID(t *testing.T) {
-	client, err := NewClient("http://example.com", token, false, nil)
-	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
-	}
-	_, err = client.GetFullSubmissionByUUID(context.Background(), "not-a-valid-uuid")
-	if err == nil {
-		t.Error("GetFullSubmissionByUUID() with invalid UUID should return error")
-	}
-	if !errors.Is(err, ErrInvalidUUID) {
-		t.Errorf("GetFullSubmissionByUUID() error = %v, want ErrInvalidUUID", err)
-	}
-}
-
-func TestExportResult_InvalidUUID(t *testing.T) {
-	client, err := NewClient("http://example.com", token, false, nil)
-	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
-	}
-	_, err = client.ExportResult(context.Background(), "not-a-valid-uuid", ExportOptions{
-		Format: ExportFormatJSON,
-		Layout: ExportLayoutEN,
-	})
-	if err == nil {
-		t.Error("ExportResult() with invalid UUID should return error")
-	}
-	if !errors.Is(err, ErrInvalidUUID) {
-		t.Errorf("ExportResult() error = %v, want ErrInvalidUUID", err)
-	}
-}
-
 func TestHTTPError(t *testing.T) {
 	resp := &http.Response{
 		Status:     "404 Not Found",
@@ -2378,85 +2424,60 @@ func TestHTTPError(t *testing.T) {
 	}
 }
 
-func TestWaitForReader_InvalidContent(t *testing.T) {
-	s := httptest.NewServer(
-		http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-			req.Body = http.MaxBytesReader(rw, req.Body, 10*1024*1024)
-			rw.WriteHeader(http.StatusOK)
-			_, _ = rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`))
-		}),
-	)
-	defer s.Close()
-
-	client, err := NewClient(s.URL, token, false, nil)
-	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
+func TestClient_GetResultByUUIDWithWait(t *testing.T) {
+	type fields struct {
+		syndetect bool
 	}
-
-	// Test with a reader that returns an error
-	_, err = client.WaitForReader(context.Background(), ErrorReader{err: errors.New("read error")}, WaitForOptions{
-		Timeout:  5 * time.Second,
-		PullTime: 10 * time.Millisecond,
-	})
-	if err == nil {
-		t.Error("WaitForReader() with ErrorReader should return error")
-	}
-}
-
-func BenchmarkCheckToken(b *testing.B) {
-	tok := "abcdef01-23456789-abcdef01-23456789-abcdef01"
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = checkToken(tok)
-	}
-}
-
-func BenchmarkGetResultByUUID(b *testing.B) {
-	s := httptest.NewServer(
-		http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-			rw.WriteHeader(http.StatusOK)
-			_, _ = rw.Write([]byte(`{"uuid":"` + testUUIDValid + `","done":true}`))
-		}),
-	)
-	defer s.Close()
-
-	client, err := NewClient(s.URL, token, false, nil)
-	if err != nil {
-		b.Fatalf("NewClient() error = %v", err)
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = client.GetResultByUUID(context.Background(), testUUIDValid)
-	}
-}
-
-// TestGetResultByUUIDWaitParam verifies that getResultByUUID adds the ?wait=N
-// query parameter when waitSeconds > 0 in detect mode, and omits it when
-// waitSeconds == 0 or the client is in syndetect mode.
-func TestGetResultByUUIDWaitParam(t *testing.T) {
 	tests := []struct {
-		name          string
-		waitSeconds   int
-		syndetect     bool
-		wantWaitParam string // expected value of the "wait" query param; empty = absent
+		name            string
+		fields          fields
+		waitSeconds     int
+		wantErr         bool
+		wantSpecificErr error
+		wantWaitParam   string
+		serverDelay     time.Duration
+		contextTimeout  time.Duration
 	}{
 		{
-			name:          "detect mode wait=0 omits param",
+			name:            "ko negative wait",
+			waitSeconds:     -1,
+			wantErr:         true,
+			wantSpecificErr: ErrInvalidWaitSeconds,
+		},
+		{
+			name:            "ko wait exceeds MaxWaitSeconds",
+			waitSeconds:     MaxWaitSeconds + 1,
+			wantErr:         true,
+			wantSpecificErr: ErrInvalidWaitSeconds,
+		},
+		{
+			name:           "ko context cancel",
+			waitSeconds:    30,
+			serverDelay:    200 * time.Millisecond,
+			contextTimeout: 20 * time.Millisecond,
+			wantErr:        true,
+		},
+		{
+			name:          "ok wait=0 omits param",
 			waitSeconds:   0,
-			syndetect:     false,
 			wantWaitParam: "",
 		},
 		{
-			name:          "detect mode wait=30 sends param",
+			name:          "ok wait=30 sends param",
 			waitSeconds:   30,
-			syndetect:     false,
 			wantWaitParam: "30",
 		},
 		{
-			name:          "syndetect mode wait=30 omits param",
+			name:          "ok wait=MaxWaitSeconds accepted",
+			waitSeconds:   MaxWaitSeconds,
+			wantWaitParam: "59",
+		},
+		{
+			name: "ok syndetect mode omits wait param",
+			fields: fields{
+				syndetect: true,
+			},
 			waitSeconds:   30,
-			syndetect:     true,
 			wantWaitParam: "",
 		},
 	}
@@ -2466,15 +2487,19 @@ func TestGetResultByUUIDWaitParam(t *testing.T) {
 			var gotWaitParam string
 			var waitParamPresent bool
 
+			uuidField := "uuid"
+			if tt.fields.syndetect {
+				uuidField = "id"
+			}
+
 			s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 				gotWaitParam = req.URL.Query().Get("wait")
 				waitParamPresent = req.URL.Query().Has("wait")
-				rw.WriteHeader(http.StatusOK)
-				if tt.syndetect {
-					_, _ = rw.Write([]byte(`{"id":"` + testUUIDValid + `","done":true}`))
-				} else {
-					_, _ = rw.Write([]byte(`{"uuid":"` + testUUIDValid + `","done":true}`))
+				if tt.serverDelay > 0 {
+					time.Sleep(tt.serverDelay)
 				}
+				rw.WriteHeader(http.StatusOK)
+				_, _ = rw.Write([]byte(`{"` + uuidField + `":"` + testUUIDValid + `","done":true}`))
 			}))
 			defer s.Close()
 
@@ -2482,195 +2507,54 @@ func TestGetResultByUUIDWaitParam(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewClient() error = %v", err)
 			}
-			if tt.syndetect {
+			if tt.fields.syndetect {
 				client.syndetect = true
 			}
 
-			_, err = client.getResultByUUID(context.Background(), testUUIDValid, tt.waitSeconds)
-			if err != nil {
-				t.Fatalf("getResultByUUID() error = %v", err)
+			ctx := context.Background()
+			if tt.contextTimeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tt.contextTimeout)
+				defer cancel()
 			}
 
-			if tt.wantWaitParam == "" {
-				if waitParamPresent {
-					t.Errorf("expected no 'wait' query param, but got %q", gotWaitParam)
-				}
-			} else {
-				if !waitParamPresent {
-					t.Errorf("expected 'wait' query param = %q, but param was absent", tt.wantWaitParam)
-				} else if gotWaitParam != tt.wantWaitParam {
-					t.Errorf("'wait' query param = %q, want %q", gotWaitParam, tt.wantWaitParam)
-				}
-			}
-		})
-	}
-}
-
-func TestClient_GetResultByUUIDWithWait(t *testing.T) {
-	tests := []struct {
-		name        string
-		uuid        string
-		waitSeconds int
-		wantResult  Result
-		wantErr     bool
-		serverDone  bool
-		httpStatus  int
-	}{
-		{
-			name:        "valid wait=0 returns done result",
-			uuid:        testUUIDValid,
-			waitSeconds: 0,
-			serverDone:  true,
-			httpStatus:  http.StatusOK,
-			wantResult:  Result{UUID: testUUIDValid, Done: true},
-		},
-		{
-			name:        "valid wait=30 returns done result",
-			uuid:        testUUIDValid,
-			waitSeconds: 30,
-			serverDone:  true,
-			httpStatus:  http.StatusOK,
-			wantResult:  Result{UUID: testUUIDValid, Done: true},
-		},
-		{
-			name:        "valid wait=MaxWaitSeconds accepted",
-			uuid:        testUUIDValid,
-			waitSeconds: MaxWaitSeconds,
-			serverDone:  true,
-			httpStatus:  http.StatusOK,
-			wantResult:  Result{UUID: testUUIDValid, Done: true},
-		},
-		{
-			name:        "server returns done=false",
-			uuid:        testUUIDValid,
-			waitSeconds: 10,
-			serverDone:  false,
-			httpStatus:  http.StatusOK,
-			wantResult:  Result{UUID: testUUIDValid, Done: false},
-		},
-		{
-			name:        "negative wait returns error",
-			uuid:        testUUIDValid,
-			waitSeconds: -1,
-			wantErr:     true,
-		},
-		{
-			name:        "wait exceeds MaxWaitSeconds returns error",
-			uuid:        testUUIDValid,
-			waitSeconds: MaxWaitSeconds + 1,
-			wantErr:     true,
-		},
-		{
-			name:        "invalid UUID returns error",
-			uuid:        "not-a-valid-uuid",
-			waitSeconds: 10,
-			wantErr:     true,
-		},
-		{
-			name:        "server 404 returns error",
-			uuid:        testUUIDNotFound,
-			waitSeconds: 10,
-			serverDone:  false,
-			httpStatus:  http.StatusNotFound,
-			wantErr:     true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-				done := "false"
-				if tt.serverDone {
-					done = "true"
-				}
-				rw.WriteHeader(tt.httpStatus)
-				if tt.httpStatus == http.StatusOK {
-					_, _ = rw.Write([]byte(`{"uuid":"` + tt.uuid + `","done":` + done + `}`))
-				} else {
-					_, _ = rw.Write([]byte(`{"error":"not found"}`))
-				}
-			}))
-			defer s.Close()
-
-			client, err := NewClient(s.URL, token, false, nil)
-			if err != nil {
-				t.Fatalf("NewClient() error = %v", err)
-			}
-
-			gotResult, err := client.GetResultByUUIDWithWait(context.Background(), tt.uuid, tt.waitSeconds)
+			_, err = client.GetResultByUUIDWithWait(ctx, testUUIDValid, tt.waitSeconds)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetResultByUUIDWithWait() error = %v, wantErr = %t", err, tt.wantErr)
 				return
 			}
-			if !tt.wantErr && !reflect.DeepEqual(gotResult, tt.wantResult) {
-				t.Errorf("GetResultByUUIDWithWait() got = %+v, want = %+v", gotResult, tt.wantResult)
+			if tt.wantSpecificErr != nil && !errors.Is(err, tt.wantSpecificErr) {
+				t.Errorf("GetResultByUUIDWithWait() error = %v, want %v", err, tt.wantSpecificErr)
+				return
+			}
+			if err != nil {
+				return
+			}
+			if tt.wantWaitParam == "" {
+				if waitParamPresent {
+					t.Errorf("expected no 'wait' query param, but got %q", gotWaitParam)
+				}
+			} else if gotWaitParam != tt.wantWaitParam {
+				t.Errorf("'wait' query param = %q, want %q", gotWaitParam, tt.wantWaitParam)
 			}
 		})
 	}
 }
 
-func TestClient_GetResultByUUIDWithWait_InvalidWait_ErrorType(t *testing.T) {
-	client, err := NewClient("http://localhost", token, false, nil)
-	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
-	}
-
-	_, err = client.GetResultByUUIDWithWait(context.Background(), testUUIDValid, -1)
-	if !errors.Is(err, ErrInvalidWaitSeconds) {
-		t.Errorf("expected ErrInvalidWaitSeconds, got %v", err)
-	}
-
-	_, err = client.GetResultByUUIDWithWait(context.Background(), testUUIDValid, MaxWaitSeconds+1)
-	if !errors.Is(err, ErrInvalidWaitSeconds) {
-		t.Errorf("expected ErrInvalidWaitSeconds for wait > MaxWaitSeconds, got %v", err)
-	}
-}
-
-func TestClient_GetResultByUUIDWithWait_ContextCancel(t *testing.T) {
-	started := make(chan struct{})
-	s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		close(started)
-		// Simulate a slow server that outlasts the context.
-		time.Sleep(200 * time.Millisecond)
-		_, _ = rw.Write([]byte(`{"uuid":"` + testUUIDValid + `","done":true}`))
-	}))
-	defer s.Close()
-
-	client, err := NewClient(s.URL, token, false, nil)
-	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-
-	errCh := make(chan error, 1)
-	go func() {
-		_, e := client.GetResultByUUIDWithWait(ctx, testUUIDValid, 60)
-		errCh <- e
-	}()
-
-	<-started // ensure the request reached the server before context expires
-	err = <-errCh
-	if err == nil {
-		t.Error("expected error due to context cancellation, got nil")
-	}
-}
-
 func TestWaitSecondsForContext(t *testing.T) {
-	t.Run("no deadline returns maxServerWait", func(t *testing.T) {
+	t.Run("no deadline returns MaxWaitSeconds", func(t *testing.T) {
 		got := waitSecondsForContext(context.Background())
-		if got != 60 {
-			t.Errorf("waitSecondsForContext() = %d, want 60", got)
+		if got != MaxWaitSeconds {
+			t.Errorf("waitSecondsForContext() = %d, want %v", got, MaxWaitSeconds)
 		}
 	})
 
-	t.Run("long deadline capped at 60", func(t *testing.T) {
+	t.Run("long deadline capped at MaxWaitSeconds", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		got := waitSecondsForContext(ctx)
-		if got != 60 {
-			t.Errorf("waitSecondsForContext() = %d, want 60", got)
+		if got != MaxWaitSeconds {
+			t.Errorf("waitSecondsForContext() = %d, want %v", got, MaxWaitSeconds)
 		}
 	})
 
@@ -2697,108 +2581,126 @@ func TestWaitSecondsForContext(t *testing.T) {
 
 // TestWaitForUUID_DetectMode_UsesWaitParam verifies that waitForUUID sends the
 // ?wait= query parameter when in detect mode (not syndetect).
-func TestWaitForUUID_DetectMode_UsesWaitParam(t *testing.T) {
-	callCount := 0
-	waitParamsSeen := []string{}
-
-	// First call returns done=false; second call returns done=true.
-	s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		callCount++
-		waitParamsSeen = append(waitParamsSeen, req.URL.Query().Get("wait"))
-		done := "false"
-		if callCount >= 2 {
-			done = "true"
-		}
-		rw.WriteHeader(http.StatusOK)
-		_, _ = rw.Write([]byte(`{"uuid":"` + testUUIDValid + `","done":` + done + `}`))
-	}))
-	defer s.Close()
-
-	client, err := NewClient(s.URL, token, false, nil)
-	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
+func Test_Client_waitForUUID(t *testing.T) {
+	type fields struct {
+		syndetect  bool
+		neverDone  bool
+		rejectWait bool
+	}
+	type args struct {
+		pullTime       time.Duration
+		contextTimeout time.Duration
+	}
+	tests := []struct {
+		name            string
+		fields          fields
+		args            args
+		wantErr         bool
+		wantSpecificErr error
+		wantDone        bool
+		wantMinCalls    int
+		wantWaitParam   bool
+	}{
+		{
+			name: "ko detect mode timeout",
+			fields: fields{
+				neverDone: true,
+			},
+			args: args{
+				pullTime:       2 * time.Second,
+				contextTimeout: 30 * time.Millisecond,
+			},
+			wantErr:         true,
+			wantSpecificErr: ErrTimeout,
+		},
+		{
+			name: "ok detect mode uses wait param",
+			args: args{
+				pullTime:       2 * time.Second,
+				contextTimeout: 5 * time.Second,
+			},
+			wantDone:      true,
+			wantMinCalls:  2,
+			wantWaitParam: true,
+		},
+		{
+			name: "ok syndetect mode no wait param",
+			fields: fields{
+				syndetect:  true,
+				rejectWait: true,
+			},
+			args: args{
+				pullTime:       10 * time.Millisecond,
+				contextTimeout: 5 * time.Second,
+			},
+			wantDone:     true,
+			wantMinCalls: 2,
+		},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			callCount := 0
+			waitParamSeen := false
 
-	result, err := client.waitForUUID(ctx, testUUIDValid, 2*time.Second)
-	if err != nil {
-		t.Fatalf("waitForUUID() error = %v", err)
-	}
-	if !result.Done {
-		t.Error("expected done=true")
-	}
-	if callCount < 2 {
-		t.Errorf("expected at least 2 calls, got %d", callCount)
-	}
-	// Every call should have a non-empty wait param.
-	for i, w := range waitParamsSeen {
-		if w == "" {
-			t.Errorf("call %d: expected non-empty 'wait' query param in detect mode", i+1)
-		}
-	}
-}
+			uuidField := "uuid"
+			if tt.fields.syndetect {
+				uuidField = "id"
+			}
 
-// TestWaitForUUID_SyndetectMode_NoWaitParam verifies that waitForUUID does NOT
-// send the ?wait= query parameter when in syndetect mode.
-func TestWaitForUUID_SyndetectMode_NoWaitParam(t *testing.T) {
-	callCount := 0
+			s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+				callCount++
+				if req.URL.Query().Has("wait") {
+					waitParamSeen = true
+					if tt.fields.rejectWait {
+						rw.WriteHeader(http.StatusBadRequest)
+						return
+					}
+				}
+				done := "false"
+				if !tt.fields.neverDone && callCount >= 2 {
+					done = "true"
+				}
+				rw.WriteHeader(http.StatusOK)
+				_, _ = rw.Write([]byte(`{"` + uuidField + `":"` + testUUIDValid + `","done":` + done + `}`))
+			}))
+			defer s.Close()
 
-	s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		callCount++
-		if req.URL.Query().Has("wait") {
-			// Fail the test from inside the handler — use a flag checked after.
-			rw.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		done := "false"
-		if callCount >= 2 {
-			done = "true"
-		}
-		rw.WriteHeader(http.StatusOK)
-		// syndetect response: UUID in "id" field, files as number
-		_, _ = rw.Write([]byte(`{"id":"` + testUUIDValid + `","done":` + done + `}`))
-	}))
-	defer s.Close()
+			client, err := NewClient(s.URL, token, false, nil)
+			if err != nil {
+				t.Fatalf("NewClient() error = %v", err)
+			}
+			if tt.fields.syndetect {
+				client.syndetect = true
+			}
 
-	client, err := NewClient(s.URL, token, false, nil)
-	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
-	}
-	client.syndetect = true
+			ctx, cancel := context.WithTimeout(context.Background(), tt.args.contextTimeout)
+			defer cancel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	result, err := client.waitForUUID(ctx, testUUIDValid, 10*time.Millisecond)
-	if err != nil {
-		t.Fatalf("waitForUUID() error = %v", err)
-	}
-	if !result.Done {
-		t.Error("expected done=true")
-	}
-}
-
-// TestWaitForUUID_DetectMode_Timeout verifies that waitForUUID returns
-// ErrTimeout when the context deadline passes before the server returns done=true.
-func TestWaitForUUID_DetectMode_Timeout(t *testing.T) {
-	s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		rw.WriteHeader(http.StatusOK)
-		_, _ = rw.Write([]byte(`{"uuid":"` + testUUIDValid + `","done":false}`))
-	}))
-	defer s.Close()
-
-	client, err := NewClient(s.URL, token, false, nil)
-	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
-	defer cancel()
-
-	_, err = client.waitForUUID(ctx, testUUIDValid, 2*time.Second)
-	if !errors.Is(err, ErrTimeout) {
-		t.Errorf("expected ErrTimeout, got %v", err)
+			result, err := client.waitForUUID(ctx, testUUIDValid, tt.args.pullTime)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("waitForUUID() error = %v, wantErr = %t", err, tt.wantErr)
+				return
+			}
+			if tt.wantSpecificErr != nil && !errors.Is(err, tt.wantSpecificErr) {
+				t.Errorf("waitForUUID() error = %v, want %v", err, tt.wantSpecificErr)
+				return
+			}
+			if err != nil {
+				return
+			}
+			if result.Done != tt.wantDone {
+				t.Errorf("waitForUUID() done = %v, want %v", result.Done, tt.wantDone)
+			}
+			if tt.wantMinCalls > 0 && callCount < tt.wantMinCalls {
+				t.Errorf("waitForUUID() callCount = %d, want >= %d", callCount, tt.wantMinCalls)
+			}
+			if tt.wantWaitParam && !waitParamSeen {
+				t.Error("waitForUUID() expected wait query param in detect mode, got none")
+			}
+			if !tt.wantWaitParam && waitParamSeen {
+				t.Error("waitForUUID() unexpected wait query param")
+			}
+		})
 	}
 }

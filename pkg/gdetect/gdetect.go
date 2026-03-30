@@ -31,26 +31,31 @@ import (
 )
 
 var (
-	// ErrTimeout is returned when a wait operation exceeds its configured timeout.
+	// ErrTimeout indicates that an operation exceeded its configured timeout.
 	ErrTimeout = errors.New("timeout")
-	// ErrBadToken is returned when the supplied API token fails format validation.
+	// ErrBadToken indicates that the token failed format validation.
 	ErrBadToken = errors.New("bad token")
-	// ErrNoToken is returned by ExtractTokenViewURL when the Result has no token field.
+	// ErrNoToken indicates that a Result has no token field.
 	ErrNoToken = errors.New("no token in result")
-	// ErrNoSID is returned by ExtractExpertViewURL when the Result has no SID field.
+	// ErrNoSID indicates that a Result has no SID field.
 	ErrNoSID = errors.New("no sid in result")
-	// ErrNotAvailable is returned when a method is called that is not supported
+	// ErrNotAvailable indicates that the called method is not supported
 	// in the currently active API mode (e.g., calling ExportResult in SynDetect mode).
 	ErrNotAvailable = errors.New("this feature is not available")
-	// ErrInvalidWaitSeconds is returned when a waitSeconds parameter is negative or
-	// exceeds MaxWaitSeconds.
+	// ErrInvalidWaitSeconds indicates that a waitSeconds parameter has an invalid value.
 	ErrInvalidWaitSeconds = errors.New("waitSeconds must be between 0 and MaxWaitSeconds")
+	// ErrInvalidUUID indicates that a UUID parameter failed format validation.
+	ErrInvalidUUID = errors.New("invalid UUID format")
+	// ErrInvalidSHA256 indicates that a SHA256 parameter failed format validation.
+	ErrInvalidSHA256 = errors.New("invalid SHA256 format")
+	// ErrPathNotFound indicates that an API path key is missing from the path maps.
+	ErrPathNotFound = errors.New("path not found")
 )
 
 // MaxWaitSeconds is the maximum allowed value for the server-side wait parameter
 // on the /results/{UUID} endpoint. The server will hold the connection open for
 // at most this many seconds waiting for the analysis to complete.
-const MaxWaitSeconds = 300
+const MaxWaitSeconds = 59
 
 // maxResponseSize caps the amount of data read from API responses to prevent
 // memory exhaustion from a malicious or compromised server (50 MB).
@@ -65,19 +70,13 @@ var reValidUUID = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0
 // reValidSHA256 matches a valid SHA256 hex string (64 lowercase hex chars).
 var reValidSHA256 = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
-// ErrInvalidUUID is returned when a UUID parameter fails format validation.
-var ErrInvalidUUID = errors.New("invalid UUID format")
-
-// ErrInvalidSHA256 is returned when a SHA256 parameter fails format validation.
-var ErrInvalidSHA256 = errors.New("invalid SHA256 format")
-
 // Logger is the structured logger used by the package for diagnostic output.
 // It defaults to WARN level on stderr; callers may replace it with their own
 // slog.Logger before creating any Client.
 var Logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
-// FeatureNotAvailableError is returned when a method is called that requires a
-// Detect API feature not present in the server version reported by the endpoint.
+// FeatureNotAvailableError indicates that a required Detect API feature
+// is not present in the server version reported by the endpoint.
 type FeatureNotAvailableError struct {
 	// Version is the API version string returned by the server.
 	Version string
@@ -257,27 +256,29 @@ type Submission struct {
 	SpecialStatusCode int      `json:"special_status_code"`
 }
 
-// SubmitOptions holds optional parameters passed to SubmitFile and SubmitReader.
+// SubmitOptions holds optional parameters for file submission.
 type SubmitOptions struct {
 	Tags            []string
 	Description     string
 	BypassCache     bool
 	Filename        string
 	ArchivePassword string
+	// Dynamic selects the profile dynamic analysis services.
+	// When true, the submit request includes the "dynamic=true" query parameter.
+	// This option is forced to true server-side when the profile has force_dynamic enabled.
+	Dynamic bool
 }
 
-// WaitForOptions holds optional parameters passed to WaitForFile and WaitForReader.
-// Timeout controls the maximum duration to wait for analysis completion; it
-// defaults to 180 seconds when zero. PullTime sets the polling interval; it
-// defaults to 2 seconds when zero.
+// WaitForOptions holds optional parameters for wait-based submission.
 type WaitForOptions struct {
-	Tags            []string
-	Description     string
-	BypassCache     bool
-	ArchivePassword string
-	Timeout         time.Duration
-	PullTime        time.Duration
-	Filename        string
+	SubmitOptions
+	// Timeout controls the maximum duration to wait for analysis completion; it
+	// defaults to 180 seconds when zero.
+	Timeout time.Duration
+	// PullTime sets the polling interval; it defaults to 2 seconds when zero.
+	// Only used in SynDetect mode. In Detect mode, the server-side ?wait=
+	// long-polling is used instead.
+	PullTime time.Duration
 }
 
 // ExportFormat represents the export format type
@@ -308,7 +309,7 @@ const (
 	ExportLayoutEN ExportLayout = "en"
 )
 
-// Options for ExportResult method
+// ExportOptions contains options for ExportResult method
 type ExportOptions struct {
 	// Format defines the export's format: misp, stix, json, pdf, markdown or csv
 	Format ExportFormat
@@ -513,9 +514,6 @@ var (
 	}
 )
 
-// ErrPathNotFound is returned when an API path key is not found in the path maps.
-var ErrPathNotFound = errors.New("path not found")
-
 func (c *Client) getPath(path string) (string, error) {
 	if c.syndetect {
 		if v, ok := SyndetectPaths[path]; ok {
@@ -665,8 +663,6 @@ func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result R
 	return
 }
 
-// SubmitFile submits a file to Detect API. The file is described by its
-// path and it's possible to provides some params to be submitted with the file.
 // SubmitFile opens a local file and submits it to the Detect API.
 // It returns the analysis UUID assigned by the server.
 // If submitOptions.Filename is empty it is populated from the opened file's name.
@@ -691,8 +687,7 @@ func (c *Client) SubmitFile(ctx context.Context, filePath string, submitOptions 
 
 // SubmitReader submits content from an io.Reader to the Detect API for analysis.
 // The data is streamed via a multipart form upload; the caller's reader is never
-// fully buffered in memory. SubmitOptions controls tags, description, bypass-cache
-// behaviour, and the filename reported to the API.
+// fully buffered in memory.
 // Returns the analysis UUID assigned by the server.
 func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions SubmitOptions) (uuid string, err error) {
 	// Struct corresponding to submit json result
@@ -785,7 +780,13 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 	if err != nil {
 		return
 	}
-	request, err := c.prepareRequest(ctx, http.MethodPost, submitPath, pr)
+	var request *http.Request
+	if submitOptions.Dynamic {
+		request, err = c.prepareRequest(ctx, http.MethodPost, submitPath, pr,
+			map[string]string{"dynamic": "true"})
+	} else {
+		request, err = c.prepareRequest(ctx, http.MethodPost, submitPath, pr)
+	}
 	if err != nil {
 		return
 	}
@@ -840,8 +841,6 @@ func addFormField(w *multipart.Writer, field string, value string) (err error) {
 	return
 }
 
-// WaitForFile submits a file, using SubmitFile method, and try to get
-// analysis results using GetResultByUUID method.
 // WaitForFile submits a local file and blocks until analysis is complete or the
 // configured timeout elapses. It returns the final analysis Result.
 func (c *Client) WaitForFile(ctx context.Context, filePath string, waitOptions WaitForOptions) (result Result, err error) {
@@ -913,13 +912,7 @@ func (c *Client) waitFor(ctx context.Context, r io.Reader, waitOptions WaitForOp
 		waitOptions.PullTime = 2 * time.Second
 	}
 
-	submitOptions := SubmitOptions{
-		Tags:            waitOptions.Tags,
-		Description:     waitOptions.Description,
-		BypassCache:     waitOptions.BypassCache,
-		ArchivePassword: waitOptions.ArchivePassword,
-		Filename:        waitOptions.Filename,
-	}
+	submitOptions := waitOptions.SubmitOptions
 	if waitOptions.BypassCache {
 		// Submit file
 		uuid, submitErr := c.SubmitReader(ctx, r, submitOptions)
@@ -975,21 +968,19 @@ func (c *Client) waitforWithPreGet(ctx context.Context, r io.ReadSeeker, pullTim
 
 // waitSecondsForContext computes how many seconds to pass as the server-side
 // wait parameter given the remaining context deadline. The value is capped at
-// maxServerWait (60 s) to avoid holding server connections for excessively long
-// periods. Returns 0 when the context has no deadline or when the remaining
-// time is less than one second.
+// MaxWaitSeconds to avoid holding server connections for excessively long
+// periods. Returns 0 if the remaining time is less than one second.
 func waitSecondsForContext(ctx context.Context) int {
-	const maxServerWait = 60
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		return maxServerWait
+		return MaxWaitSeconds
 	}
 	remaining := int(time.Until(deadline).Seconds())
 	if remaining <= 0 {
 		return 0
 	}
-	if remaining > maxServerWait {
-		return maxServerWait
+	if remaining > MaxWaitSeconds {
+		return MaxWaitSeconds
 	}
 	return remaining
 }

@@ -305,7 +305,11 @@ func TestWaitForReader(t *testing.T) {
 		}
 
 		reader := strings.NewReader("binary data")
-		result, err := mock.WaitForReader(context.Background(), reader, gdetect.WaitForOptions{Filename: "stream.bin"})
+		result, err := mock.WaitForReader(context.Background(), reader, gdetect.WaitForOptions{
+			SubmitOptions: gdetect.SubmitOptions{
+				Filename: "stream.bin",
+			},
+		})
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}

@@ -20,7 +20,7 @@ import (
 //
 //	-h, --help            help for get
 //	    --retrieve-urls   Retrieve expert and token view URL
-//	    --wait int        Server-side wait: hold the connection for up to N seconds until analysis is complete (0–300)
+//	    --wait int        Server-side wait: hold the connection for up to N seconds until analysis is complete (0–59)
 //
 // Global Flags:
 //
@@ -72,11 +72,7 @@ and eventually URL to access Token view and Expert analysis view.`,
 		}
 
 		var result gdetect.Result
-		if waitSeconds > 0 {
-			result, err = client.GetResultByUUIDWithWait(context.Background(), args[0], waitSeconds)
-		} else {
-			result, err = client.GetResultByUUID(context.Background(), args[0])
-		}
+		result, err = client.GetResultByUUIDWithWait(context.Background(), args[0], waitSeconds)
 		if err != nil {
 			return
 		}
@@ -129,5 +125,5 @@ and eventually URL to access Token view and Expert analysis view.`,
 func init() {
 	rootCmd.AddCommand(GetCmd)
 	GetCmd.Flags().Bool("retrieve-urls", false, "Retrieve expert and token view URL")
-	GetCmd.Flags().Int("wait", 0, "Server-side wait: instruct the server to hold the connection for up to N seconds until the analysis is complete (0–300)")
+	GetCmd.Flags().Int("wait", 0, "Server-side wait: instruct the server to hold the connection for up to N seconds until the analysis is complete (0–59)")
 }
