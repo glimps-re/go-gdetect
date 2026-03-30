@@ -70,6 +70,11 @@ analysis UUID and print it out.`,
 			return
 		}
 
+		dynamic, err := cmd.Flags().GetBool("dynamic")
+		if err != nil {
+			return
+		}
+
 		client, err := gdetect.NewClientFromConfig(gdetect.ClientConfig{
 			Endpoint: apiEndpoint,
 			Token:    apiToken,
@@ -92,6 +97,7 @@ analysis UUID and print it out.`,
 			Tags:            tags,
 			BypassCache:     bypassCache,
 			ArchivePassword: password,
+			Dynamic:         dynamic,
 		}
 
 		uuid, err := client.SubmitFile(context.Background(), args[0], submitOptions)
@@ -115,4 +121,5 @@ func init() {
 	SubmitCmd.Flags().StringSliceP("tag", "t", nil, "Tag list")
 	SubmitCmd.Flags().StringP("description", "d", "", "Description for the file")
 	SubmitCmd.Flags().StringP("password", "p", "", "Password used to extract archive")
+	SubmitCmd.Flags().Bool("dynamic", false, "Select the profile dynamic analysis services")
 }

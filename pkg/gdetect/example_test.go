@@ -216,8 +216,10 @@ func ExampleClient_WaitForFile() {
 
 	result, err := client.WaitForFile(context.Background(), "../../tests/samples/false_mirai",
 		gdetect.WaitForOptions{
-			BypassCache: true,
-			PullTime:    50 * time.Millisecond,
+			SubmitOptions: gdetect.SubmitOptions{
+				BypassCache: true,
+			},
+			PullTime: 50 * time.Millisecond,
 		})
 	if err != nil {
 		fmt.Println("error:", err)

@@ -9,7 +9,6 @@ import (
 	"testing"
 )
 
-// Test UUID constants in valid API format (5 groups of 8 hex chars).
 const (
 	exportUUIDPDF        = "ab000001-0000-0000-0000-00000000000a"
 	exportUUIDJSON       = "ab000001-0000-0000-0000-00000000000b"

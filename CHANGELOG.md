@@ -4,10 +4,8 @@
 
 ### Added
 
-* `GetResultByUUIDWithWait(ctx, uuid, waitSeconds)` — new method instructing the server to hold the HTTP connection open for up to `waitSeconds` seconds until the analysis is complete. Returns `ErrInvalidWaitSeconds` for values outside [0, 300].
-* `MaxWaitSeconds` constant (300) — upper bound for the server-side wait parameter.
-* `ErrInvalidWaitSeconds` sentinel error for invalid wait values.
-* `--wait N` flag on the CLI `get` command — blocks for up to N seconds waiting for the result.
+* dynamic option for submission
+* wait option for get result by uuid
 * `waitForUUID` polling loop in detect mode now uses the server-side `?wait=` parameter, reducing unnecessary round-trips.
 
 ## [v1.6.1]

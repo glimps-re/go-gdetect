@@ -9,13 +9,12 @@ import (
 	"testing"
 )
 
-// Test UUID and SHA256 constants in standard UUID format (8-4-4-4-12).
 const (
 	rootUUIDValid     = "ab000001-0000-0000-0000-000000000001"
 	rootUUIDNeverDone = "ab000001-0000-0000-0000-000000000008"
 	rootUUIDTokenSID  = "ab000001-0000-0000-0000-000000000002"
 	rootUUIDToken     = "ab000001-0000-0000-0000-000000000003"
-	// SHA256 strings (64 hex chars) for search command tests.
+	// for search command tests.
 	rootSHA256Valid    = "ab00000100000000000000000000000000000000000000000000000000000001"
 	rootSHA256TokenSID = "ab00000100000000000000000000000000000000000000000000000000000002"
 )

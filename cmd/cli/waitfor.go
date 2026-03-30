@@ -101,13 +101,21 @@ URL to token view and expert analysis view.`,
 			return
 		}
 
+		dynamic, err := cmd.Flags().GetBool("dynamic")
+		if err != nil {
+			return
+		}
+
 		waitForOptions := gdetect.WaitForOptions{
-			Tags:            tags,
-			Description:     description,
-			Timeout:         time.Duration(timeout) * time.Second,
-			BypassCache:     bypassCache,
-			PullTime:        time.Duration(pullTime) * time.Second,
-			ArchivePassword: password,
+			SubmitOptions: gdetect.SubmitOptions{
+				Tags:            tags,
+				Description:     description,
+				BypassCache:     bypassCache,
+				ArchivePassword: password,
+				Dynamic:         dynamic,
+			},
+			Timeout:  time.Duration(timeout) * time.Second,
+			PullTime: time.Duration(pullTime) * time.Second,
 		}
 
 		result, err := client.WaitForFile(context.Background(), args[0], waitForOptions)
@@ -171,4 +179,5 @@ func init() {
 	WaitForCmd.Flags().Bool("retrieve-urls", false, "Retrieve expert and token view URL")
 	WaitForCmd.Flags().Int("pull-time", 2, "Set time to wait between each request trying get result, in seconds")
 	WaitForCmd.Flags().StringP("password", "p", "", "Password used to extract archive")
+	WaitForCmd.Flags().Bool("dynamic", false, "Select the profile dynamic analysis services")
 }
