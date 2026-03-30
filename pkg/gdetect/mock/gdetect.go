@@ -25,6 +25,7 @@ import (
 //	}
 type MockGDetectSubmitter struct {
 	GetResultByUUIDMock         func(ctx context.Context, uuid string) (result gdetect.Result, err error)
+	GetResultByUUIDWithWaitMock func(ctx context.Context, uuid string, waitSeconds int) (result gdetect.Result, err error)
 	GetResultBySHA256Mock       func(ctx context.Context, sha256 string) (result gdetect.Result, err error)
 	GetResultsMock              func(ctx context.Context, from int, size int, tags ...string) (submissions []gdetect.Submission, err error)
 	SubmitFileMock              func(ctx context.Context, filepath string, options gdetect.SubmitOptions) (uuid string, err error)
@@ -52,6 +53,14 @@ func (m *MockGDetectSubmitter) GetResultByUUID(ctx context.Context, uuid string)
 		return m.GetResultByUUIDMock(ctx, uuid)
 	}
 	panic("GetResultByUUID not implemented in current test")
+}
+
+// GetResultByUUIDWithWait delegates to GetResultByUUIDWithWaitMock. Panics if the field is nil.
+func (m *MockGDetectSubmitter) GetResultByUUIDWithWait(ctx context.Context, uuid string, waitSeconds int) (result gdetect.Result, err error) {
+	if m.GetResultByUUIDWithWaitMock != nil {
+		return m.GetResultByUUIDWithWaitMock(ctx, uuid, waitSeconds)
+	}
+	panic("GetResultByUUIDWithWait not implemented in current test")
 }
 
 // GetResultBySHA256 delegates to GetResultBySHA256Mock. Panics if the field is nil.

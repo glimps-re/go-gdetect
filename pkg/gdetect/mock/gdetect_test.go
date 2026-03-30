@@ -51,6 +51,62 @@ func TestGetResultByUUID(t *testing.T) {
 	})
 }
 
+// TestGetResultByUUIDWithWait tests the GetResultByUUIDWithWait mock method
+func TestGetResultByUUIDWithWait(t *testing.T) {
+	t.Run("success with wait", func(t *testing.T) {
+		expectedResult := gdetect.Result{UUID: "test-uuid", Done: true}
+		mock := &MockGDetectSubmitter{
+			GetResultByUUIDWithWaitMock: func(ctx context.Context, uuid string, waitSeconds int) (gdetect.Result, error) {
+				if uuid != "test-uuid" {
+					t.Errorf("expected uuid 'test-uuid', got '%s'", uuid)
+				}
+				if waitSeconds != 30 {
+					t.Errorf("expected waitSeconds=30, got %d", waitSeconds)
+				}
+				return expectedResult, nil
+			},
+		}
+
+		result, err := mock.GetResultByUUIDWithWait(context.Background(), "test-uuid", 30)
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if result.UUID != expectedResult.UUID {
+			t.Errorf("expected UUID '%s', got '%s'", expectedResult.UUID, result.UUID)
+		}
+		if !result.Done {
+			t.Error("expected Done=true")
+		}
+	})
+
+	t.Run("returns error from mock", func(t *testing.T) {
+		mock := &MockGDetectSubmitter{
+			GetResultByUUIDWithWaitMock: func(ctx context.Context, uuid string, waitSeconds int) (gdetect.Result, error) {
+				return gdetect.Result{}, errors.New("mock error")
+			},
+		}
+
+		_, err := mock.GetResultByUUIDWithWait(context.Background(), "test-uuid", 10)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if err.Error() != "mock error" {
+			t.Errorf("expected 'mock error', got '%s'", err.Error())
+		}
+	})
+
+	t.Run("panic when not implemented", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when GetResultByUUIDWithWaitMock is not set")
+			}
+		}()
+
+		mock := &MockGDetectSubmitter{}
+		_, _ = mock.GetResultByUUIDWithWait(context.Background(), "test-uuid", 30)
+	})
+}
+
 // TestGetResultBySHA256 tests the GetResultBySHA256 mock method
 func TestGetResultBySHA256(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
