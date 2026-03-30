@@ -23,3 +23,4 @@ go.work
 # vscode files
 .vscode/
 tmp/*
+bin/*

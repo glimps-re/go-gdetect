@@ -1,25 +1,29 @@
-// Package go-gdetect implements multiple commands to interact with GLIMPS
-// Malware detect API. To manipulate directly detect's API, use package
-// [pkg/gdetect/gdetect].
+// Package cli implements the go-gdetect command-line tool for interacting with
+// the GLIMPS Malware Detect API. To use the API programmatically, use the
+// [github.com/glimps-re/go-gdetect/pkg/gdetect] package directly.
 //
 // Usage:
-// go-gdetect [command]
+//
+//	go-gdetect [command]
 //
 // Available Commands:
 //
 //	completion  Generate the autocompletion script for the specified shell
+//	export      Export result by its uuid
 //	get         Get a file by its uuid
 //	help        Help about any command
 //	search      Search a previous analysis
+//	status      Get profile status
 //	submit      Submit a file to gdetect api
 //	waitfor     Submit a file to gdetect api and wait for results
 //
 // Flags:
 //
-//	-h, --help           help for go-gdetect
-//	--insecure       bypass HTTPS check
-//	--token string   token to API
-//	--url string     url to API
+//	-h, --help             help for go-gdetect
+//	    --insecure         bypass HTTPS check
+//	    --syndetect        use syndetect API (warning: subset of detect capabilities)
+//	    --token string     token to API
+//	    --url string       url to API
 package cli
 
 import (
@@ -34,6 +38,9 @@ var rootCmd = &cobra.Command{
 	Short: "go-gdetect - interact with GLIMPS malware detect API",
 }
 
+// Execute runs the root CLI command. If the first argument is not a recognised
+// sub-command, it falls back to the submit command so that the tool can be
+// invoked as `go-gdetect /path/to/file` without explicitly naming "submit".
 func Execute() (err error) {
 	// Check if cmd is well recognized
 	cmd, _, errCmdNotFound := rootCmd.Find(os.Args[1:])

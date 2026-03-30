@@ -15,6 +15,10 @@ type results struct {
 	Submissions []Submission `json:"submissions"`
 }
 
+// GetResults retrieves a paginated list of past submissions from the Detect API.
+// from is the zero-based offset and size is the number of results to return.
+// An optional tag filter may be provided as the first variadic argument.
+// Returns an empty slice (not an error) when no results match (HTTP 404).
 func (c *Client) GetResults(ctx context.Context, from int, size int, tags ...string) (submissions []Submission, err error) {
 	request, err := c.prepareRequest(ctx, "GET", "/api/lite/v2/results", nil)
 	if err != nil {

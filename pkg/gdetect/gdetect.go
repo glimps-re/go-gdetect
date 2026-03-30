@@ -29,12 +29,17 @@ import (
 	"github.com/coreos/go-semver/semver"
 )
 
-// Generic gdetect client errors.
 var (
-	ErrTimeout      = errors.New("timeout")
-	ErrBadToken     = errors.New("bad token")
-	ErrNoToken      = errors.New("no token in result")
-	ErrNoSID        = errors.New("no sid in result")
+	// ErrTimeout is returned when a wait operation exceeds its configured timeout.
+	ErrTimeout = errors.New("timeout")
+	// ErrBadToken is returned when the supplied API token fails format validation.
+	ErrBadToken = errors.New("bad token")
+	// ErrNoToken is returned by ExtractTokenViewURL when the Result has no token field.
+	ErrNoToken = errors.New("no token in result")
+	// ErrNoSID is returned by ExtractExpertViewURL when the Result has no SID field.
+	ErrNoSID = errors.New("no sid in result")
+	// ErrNotAvailable is returned when a method is called that is not supported
+	// in the currently active API mode (e.g., calling ExportResult in SynDetect mode).
 	ErrNotAvailable = errors.New("this feature is not available")
 )
 
@@ -57,9 +62,15 @@ var ErrInvalidUUID = errors.New("invalid UUID format")
 // ErrInvalidSHA256 is returned when a SHA256 parameter fails format validation.
 var ErrInvalidSHA256 = errors.New("invalid SHA256 format")
 
+// Logger is the structured logger used by the package for diagnostic output.
+// It defaults to WARN level on stderr; callers may replace it with their own
+// slog.Logger before creating any Client.
 var Logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
+// FeatureNotAvailableError is returned when a method is called that requires a
+// Detect API feature not present in the server version reported by the endpoint.
 type FeatureNotAvailableError struct {
+	// Version is the API version string returned by the server.
 	Version string
 }
 
@@ -67,6 +78,9 @@ func (e FeatureNotAvailableError) Error() string {
 	return "feature not available, API version: " + e.Version
 }
 
+// GDetectSubmitter is the base interface for interacting with the GLIMPS Detect API.
+// It covers the most common operations: submitting files, retrieving results, and
+// querying profile status.
 type GDetectSubmitter interface {
 	GetResultByUUID(ctx context.Context, uuid string) (result Result, err error)
 	GetResultBySHA256(ctx context.Context, sha256 string) (result Result, err error)
@@ -80,6 +94,8 @@ type GDetectSubmitter interface {
 	ExportResult(ctx context.Context, uuid string, options ExportOptions) (data []byte, err error)
 }
 
+// ExtendedGDetectSubmitter extends GDetectSubmitter with methods that return
+// richer analysis data: full submissions, and URL extraction for the Expert View.
 type ExtendedGDetectSubmitter interface {
 	GDetectSubmitter
 	ExtractTokenViewURL(result *Result) (urlTokenView string, err error)
@@ -87,10 +103,13 @@ type ExtendedGDetectSubmitter interface {
 	GetFullSubmissionByUUID(ctx context.Context, uuid string) (result any, err error)
 }
 
+// ControllerSubmitter provides runtime reconfiguration of the client.
 type ControllerSubmitter interface {
 	Reconfigure(ctx context.Context, config ClientConfig) (err error)
 }
 
+// ControllerGDetectSubmitter combines GDetectSubmitter with ControllerSubmitter,
+// enabling both analysis operations and runtime reconfiguration.
 type ControllerGDetectSubmitter interface {
 	GDetectSubmitter
 	ControllerSubmitter
@@ -113,16 +132,25 @@ var (
 	_ ControllerExtendedGDetectSubmitter = &Client{}
 )
 
+// ClientConfig holds the configuration needed to create or reconfigure a Client.
 type ClientConfig struct {
-	Endpoint   string
-	Token      string
-	ExpertURL  string
-	Syndetect  bool
+	// Endpoint is the base URL of the GLIMPS Detect or SynDetect API server.
+	Endpoint string
+	// Token is the API authentication token (must match the UUID format).
+	Token string
+	// ExpertURL is an optional alternate base URL used for constructing Expert
+	// View links. Falls back to Endpoint when empty.
+	ExpertURL string
+	// Syndetect selects the SynDetect API path set instead of the default Detect paths.
+	Syndetect bool
+	// HTTPClient is an optional custom HTTP client. When nil, a default client
+	// with DefaultTimeout is created; Insecure is ignored when this is set.
 	HTTPClient *http.Client
-	Insecure   bool
+	// Insecure disables TLS certificate verification. Only used when HTTPClient is nil.
+	Insecure bool
 }
 
-// Client is the representation of a Detect API CLient.
+// Client is the representation of a Detect API Client.
 type Client struct {
 	lock       *sync.RWMutex
 	Endpoint   string
@@ -161,7 +189,10 @@ type Result struct {
 	SpecialStatusCode int               `json:"special_status_code"`
 }
 
-// Threat part of an analysis result
+// Threat describes a single malicious file found within an analysis result.
+// The Result.Threats map is keyed by each file's SHA256 hash; the value is a
+// Threat record containing identification hashes, filenames, AV tags, and the
+// score that exceeded the malware threshold for that file.
 type Threat struct {
 	Filenames []string `json:"filenames"`
 	Tags      []Tag    `json:"tags"`
@@ -175,7 +206,8 @@ type Threat struct {
 	Mime      string   `json:"mime"`
 }
 
-// Tag part for Threat
+// Tag is a key-value label attached to a Threat, typically carrying AV verdict
+// names (e.g., Name="av.virus_name", Value="win_cybergate_auto").
 type Tag struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
@@ -200,6 +232,7 @@ type AvResult struct {
 	Score  int    `json:"score"`
 }
 
+// Submission represents a summary entry returned by the GetResults list endpoint.
 type Submission struct {
 	UUID              string   `json:"uuid"`
 	Malware           bool     `json:"is_malware"`
@@ -214,7 +247,7 @@ type Submission struct {
 	SpecialStatusCode int      `json:"special_status_code"`
 }
 
-// Options for SubmitFile method
+// SubmitOptions holds optional parameters passed to SubmitFile and SubmitReader.
 type SubmitOptions struct {
 	Tags            []string
 	Description     string
@@ -223,7 +256,10 @@ type SubmitOptions struct {
 	ArchivePassword string
 }
 
-// Options for WaitForFile method
+// WaitForOptions holds optional parameters passed to WaitForFile and WaitForReader.
+// Timeout controls the maximum duration to wait for analysis completion; it
+// defaults to 180 seconds when zero. PullTime sets the polling interval; it
+// defaults to 2 seconds when zero.
 type WaitForOptions struct {
 	Tags            []string
 	Description     string
@@ -238,19 +274,27 @@ type WaitForOptions struct {
 type ExportFormat string
 
 const (
-	ExportFormatMISP     ExportFormat = "misp"
-	ExportFormatSTIX     ExportFormat = "stix"
-	ExportFormatJSON     ExportFormat = "json"
-	ExportFormatPDF      ExportFormat = "pdf"
+	// ExportFormatMISP exports the analysis result as a MISP event.
+	ExportFormatMISP ExportFormat = "misp"
+	// ExportFormatSTIX exports the analysis result as a STIX bundle.
+	ExportFormatSTIX ExportFormat = "stix"
+	// ExportFormatJSON exports the analysis result as a JSON report.
+	ExportFormatJSON ExportFormat = "json"
+	// ExportFormatPDF exports the analysis result as a PDF report.
+	ExportFormatPDF ExportFormat = "pdf"
+	// ExportFormatMarkdown exports the analysis result as a Markdown report.
 	ExportFormatMarkdown ExportFormat = "markdown"
-	ExportFormatCSV      ExportFormat = "csv"
+	// ExportFormatCSV exports the analysis result as a CSV spreadsheet.
+	ExportFormatCSV ExportFormat = "csv"
 )
 
 // ExportLayout represents the report language layout
 type ExportLayout string
 
 const (
+	// ExportLayoutFR selects French as the report language.
 	ExportLayoutFR ExportLayout = "fr"
+	// ExportLayoutEN selects English as the report language.
 	ExportLayoutEN ExportLayout = "en"
 )
 
@@ -307,11 +351,9 @@ func NewClient(endpoint, token string, insecure bool, httpClient *http.Client) (
 	return client, nil
 }
 
-// NewClientFromConfig returns a fresh client, given endpoint token and insecure params.
-// The returned client could be used to perform operations on gdetect.
-//
-// If Client is well-formed, it returns error == nil. If error != nil, that
-// could mean that Token is invalid (by its length for example).
+// NewClientFromConfig returns a new Client configured from the provided ClientConfig.
+// It validates the token format and initialises the HTTP client.
+// Returns ErrBadToken when config.Token does not match the required UUID format.
 func NewClientFromConfig(config ClientConfig) (client *Client, err error) {
 	err = checkToken(config.Token)
 	if err != nil {
@@ -324,7 +366,9 @@ func NewClientFromConfig(config ClientConfig) (client *Client, err error) {
 	return client, nil
 }
 
-// func (c *Client) Reconfigure(ctx context.Context, endpoint string, token string, insecure bool, syndetect bool, httpClient *http.Client) (err error) {
+// Reconfigure applies a new ClientConfig to the client at runtime.
+// It is safe to call concurrently; a write lock is held for the duration.
+// For SynDetect mode, it also validates the server API version.
 func (c *Client) Reconfigure(ctx context.Context, config ClientConfig) (err error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -386,6 +430,9 @@ func checkToken(token string) (err error) {
 	return
 }
 
+// SetSyndetect configures the client to use the SynDetect API path set.
+// This method logs a warning because SynDetect is a limited variant and
+// some analysis information will not be accessible.
 func (c *Client) SetSyndetect() {
 	c.syndetect = true
 	Logger.Warn("syndetect is a limited version of detect API, some analysis information won't be accessible.")
@@ -418,6 +465,8 @@ func (c *Client) prepareRequest(ctx context.Context, method string, path string,
 	return
 }
 
+// HTTPError represents a non-2xx HTTP response from the API, carrying the
+// response status, status code, and raw response body for diagnosis.
 type HTTPError struct {
 	Status string
 	Code   int
@@ -428,6 +477,7 @@ func (e HTTPError) Error() string {
 	return fmt.Sprintf("invalid response from endpoint, %s: %s", e.Status, e.Body)
 }
 
+// NewHTTPError creates an HTTPError from an HTTP response and a pre-read body string.
 func NewHTTPError(r *http.Response, body string) HTTPError {
 	return HTTPError{
 		Status: r.Status,
@@ -437,12 +487,14 @@ func NewHTTPError(r *http.Response, body string) HTTPError {
 }
 
 var (
+	// DetectPaths maps logical path keys to their corresponding Detect API URL prefixes.
 	DetectPaths = map[string]string{
 		"results": "/api/lite/v2/results/",
 		"search":  "/api/lite/v2/search/",
 		"submit":  "/api/lite/v2/submit",
 		"status":  "/api/lite/v2/status",
 	}
+	// SyndetectPaths maps logical path keys to their corresponding SynDetect API URL prefixes.
 	SyndetectPaths = map[string]string{
 		"results": "/api/v1/results/",
 		"search":  "/api/v1/results/",
@@ -507,7 +559,8 @@ func (c *Client) GetResultByUUID(ctx context.Context, analysisID string) (result
 	case err == nil:
 		// not error
 	case c.syndetect && err.Error() == "json: cannot unmarshal number into Go struct field Result.files of type []gdetect.FileResult":
-		// with syndetect files if the number of files
+		// SynDetect returns the file count as a plain number in the "files" field
+		// instead of an array when there are no sub-file results; ignore the mismatch.
 		err = nil
 	default:
 		err = fmt.Errorf("error unmarshalling response json, %w", err)
@@ -520,8 +573,9 @@ func (c *Client) GetResultByUUID(ctx context.Context, analysisID string) (result
 	return
 }
 
-// GetResultBySHA256 search for an analysis using search endpoint on Detect API with
-// given file SHA256.
+// GetResultBySHA256 searches for a previous analysis using the search endpoint of
+// the Detect API with the given file SHA256 hash. Returns ErrInvalidSHA256 when
+// the sha256 parameter is not a valid 64-character lowercase hex string.
 func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result Result, err error) {
 	if !reValidSHA256.MatchString(sha256) {
 		err = ErrInvalidSHA256
@@ -567,6 +621,9 @@ func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result R
 
 // SubmitFile submits a file to Detect API. The file is described by its
 // path and it's possible to provides some params to be submitted with the file.
+// SubmitFile opens a local file and submits it to the Detect API.
+// It returns the analysis UUID assigned by the server.
+// If submitOptions.Filename is empty it is populated from the opened file's name.
 func (c *Client) SubmitFile(ctx context.Context, filePath string, submitOptions SubmitOptions) (uuid string, err error) {
 	file, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
@@ -586,7 +643,11 @@ func (c *Client) SubmitFile(ctx context.Context, filePath string, submitOptions 
 	return c.SubmitReader(ctx, file, submitOptions)
 }
 
-// SubmitReader submits a file to Detect API.
+// SubmitReader submits content from an io.Reader to the Detect API for analysis.
+// The data is streamed via a multipart form upload; the caller's reader is never
+// fully buffered in memory. SubmitOptions controls tags, description, bypass-cache
+// behaviour, and the filename reported to the API.
+// Returns the analysis UUID assigned by the server.
 func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions SubmitOptions) (uuid string, err error) {
 	// Struct corresponding to submit json result
 	type responseT struct {
@@ -735,6 +796,8 @@ func addFormField(w *multipart.Writer, field string, value string) (err error) {
 
 // WaitForFile submits a file, using SubmitFile method, and try to get
 // analysis results using GetResultByUUID method.
+// WaitForFile submits a local file and blocks until analysis is complete or the
+// configured timeout elapses. It returns the final analysis Result.
 func (c *Client) WaitForFile(ctx context.Context, filePath string, waitOptions WaitForOptions) (result Result, err error) {
 	file, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
@@ -757,6 +820,9 @@ func (c *Client) WaitForFile(ctx context.Context, filePath string, waitOptions W
 	)
 }
 
+// WaitForReader submits data from an io.Reader and blocks until analysis is complete
+// or the configured timeout elapses. The reader content is buffered to a temporary
+// file so it can be re-read on cache-miss retries.
 func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions WaitForOptions) (result Result, err error) {
 	return c.waitFor(ctx, r, waitOptions,
 		func(ctx context.Context, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
@@ -881,7 +947,8 @@ func (c *Client) waitForUUID(ctx context.Context, analysisID string, pullTime ti
 	}
 }
 
-// ExtractTokenViewURL extracts URL token view from given result, use client to retrieve API base endpoint
+// ExtractTokenViewURL builds a URL for the Expert View token-redirect page from
+// the Token field of the given Result. Returns ErrNoToken when the result has no token.
 func (c *Client) ExtractTokenViewURL(result *Result) (urlTokenView string, err error) {
 	token := result.Token
 	if token == "" {
@@ -954,6 +1021,8 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 	return
 }
 
+// GetProfileStatus retrieves the current profile quota and configuration status
+// from the API.
 func (c *Client) GetProfileStatus(ctx context.Context) (status ProfileStatus, err error) {
 	return c.getProfileStatus(ctx, c.Do)
 }
