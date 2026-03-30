@@ -14,7 +14,7 @@ import (
 func TestMockImplementsInterfaces(t *testing.T) {
 	var _ gdetect.GDetectSubmitter = &MockGDetectSubmitter{}
 	var _ gdetect.ExtendedGDetectSubmitter = &MockGDetectSubmitter{}
-	var _ gdetect.ControllerExtendedGdetectSubmitter = &MockGDetectSubmitter{}
+	var _ gdetect.ControllerExtendedGDetectSubmitter = &MockGDetectSubmitter{}
 }
 
 // TestGetResultByUUID tests the GetResultByUUID mock method
