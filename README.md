@@ -58,6 +58,26 @@ Flags:
 Use "go-gdetect [command] --help" for more information about a command.
 ```
 
+#### Get command
+
+The `get` command retrieves an analysis result by UUID. Use the `--wait` flag to
+instruct the server to hold the connection open until the analysis is complete:
+
+```bash
+# Immediate retrieval (returns done=false if analysis is still running)
+./go-gdetect get <UUID>
+
+# Block for up to 60 seconds waiting for the result
+./go-gdetect get <UUID> --wait 60
+
+# Also print Expert View and Token View URLs
+./go-gdetect get <UUID> --retrieve-urls
+```
+
+The `--wait` value must be between 0 and 300 (seconds). When `--wait 0` (default),
+the server responds immediately. The wait parameter is only used in Detect mode;
+in SynDetect mode it has no effect.
+
 #### Export command
 
 The `export` command allows you to export analysis results in various formats:
@@ -105,12 +125,19 @@ func main() {
   return
  }
 
- // Get analysis result
+ // Get analysis result immediately (done may be false if analysis is pending)
  result, err := client.GetResultByUUID(context.Background(), "9618ae7e-e284-405d-8998-ff1e12c7ca27")
  if err != nil {
   return
  }
  fmt.Print(result.SHA256)
+
+ // Block for up to 30 seconds waiting for the analysis to complete
+ result, err = client.GetResultByUUIDWithWait(context.Background(), "9618ae7e-e284-405d-8998-ff1e12c7ca27", 30)
+ if err != nil {
+  return
+ }
+ fmt.Print(result.Done) // true if analysis completed within 30 s
 
  // Export analysis to PDF
  exportOptions := gdetect.ExportOptions{

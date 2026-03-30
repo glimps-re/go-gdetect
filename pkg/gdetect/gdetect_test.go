@@ -2430,3 +2430,375 @@ func BenchmarkGetResultByUUID(b *testing.B) {
 		_, _ = client.GetResultByUUID(context.Background(), testUUIDValid)
 	}
 }
+
+// TestGetResultByUUIDWaitParam verifies that getResultByUUID adds the ?wait=N
+// query parameter when waitSeconds > 0 in detect mode, and omits it when
+// waitSeconds == 0 or the client is in syndetect mode.
+func TestGetResultByUUIDWaitParam(t *testing.T) {
+	tests := []struct {
+		name          string
+		waitSeconds   int
+		syndetect     bool
+		wantWaitParam string // expected value of the "wait" query param; empty = absent
+	}{
+		{
+			name:          "detect mode wait=0 omits param",
+			waitSeconds:   0,
+			syndetect:     false,
+			wantWaitParam: "",
+		},
+		{
+			name:          "detect mode wait=30 sends param",
+			waitSeconds:   30,
+			syndetect:     false,
+			wantWaitParam: "30",
+		},
+		{
+			name:          "syndetect mode wait=30 omits param",
+			waitSeconds:   30,
+			syndetect:     true,
+			wantWaitParam: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotWaitParam string
+			var waitParamPresent bool
+
+			s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+				gotWaitParam = req.URL.Query().Get("wait")
+				waitParamPresent = req.URL.Query().Has("wait")
+				rw.WriteHeader(http.StatusOK)
+				if tt.syndetect {
+					_, _ = rw.Write([]byte(`{"id":"` + testUUIDValid + `","done":true}`))
+				} else {
+					_, _ = rw.Write([]byte(`{"uuid":"` + testUUIDValid + `","done":true}`))
+				}
+			}))
+			defer s.Close()
+
+			client, err := NewClient(s.URL, token, false, nil)
+			if err != nil {
+				t.Fatalf("NewClient() error = %v", err)
+			}
+			if tt.syndetect {
+				client.syndetect = true
+			}
+
+			_, err = client.getResultByUUID(context.Background(), testUUIDValid, tt.waitSeconds)
+			if err != nil {
+				t.Fatalf("getResultByUUID() error = %v", err)
+			}
+
+			if tt.wantWaitParam == "" {
+				if waitParamPresent {
+					t.Errorf("expected no 'wait' query param, but got %q", gotWaitParam)
+				}
+			} else {
+				if !waitParamPresent {
+					t.Errorf("expected 'wait' query param = %q, but param was absent", tt.wantWaitParam)
+				} else if gotWaitParam != tt.wantWaitParam {
+					t.Errorf("'wait' query param = %q, want %q", gotWaitParam, tt.wantWaitParam)
+				}
+			}
+		})
+	}
+}
+
+func TestClient_GetResultByUUIDWithWait(t *testing.T) {
+	tests := []struct {
+		name        string
+		uuid        string
+		waitSeconds int
+		wantResult  Result
+		wantErr     bool
+		serverDone  bool
+		httpStatus  int
+	}{
+		{
+			name:        "valid wait=0 returns done result",
+			uuid:        testUUIDValid,
+			waitSeconds: 0,
+			serverDone:  true,
+			httpStatus:  http.StatusOK,
+			wantResult:  Result{UUID: testUUIDValid, Done: true},
+		},
+		{
+			name:        "valid wait=30 returns done result",
+			uuid:        testUUIDValid,
+			waitSeconds: 30,
+			serverDone:  true,
+			httpStatus:  http.StatusOK,
+			wantResult:  Result{UUID: testUUIDValid, Done: true},
+		},
+		{
+			name:        "valid wait=MaxWaitSeconds accepted",
+			uuid:        testUUIDValid,
+			waitSeconds: MaxWaitSeconds,
+			serverDone:  true,
+			httpStatus:  http.StatusOK,
+			wantResult:  Result{UUID: testUUIDValid, Done: true},
+		},
+		{
+			name:        "server returns done=false",
+			uuid:        testUUIDValid,
+			waitSeconds: 10,
+			serverDone:  false,
+			httpStatus:  http.StatusOK,
+			wantResult:  Result{UUID: testUUIDValid, Done: false},
+		},
+		{
+			name:        "negative wait returns error",
+			uuid:        testUUIDValid,
+			waitSeconds: -1,
+			wantErr:     true,
+		},
+		{
+			name:        "wait exceeds MaxWaitSeconds returns error",
+			uuid:        testUUIDValid,
+			waitSeconds: MaxWaitSeconds + 1,
+			wantErr:     true,
+		},
+		{
+			name:        "invalid UUID returns error",
+			uuid:        "not-a-valid-uuid",
+			waitSeconds: 10,
+			wantErr:     true,
+		},
+		{
+			name:        "server 404 returns error",
+			uuid:        testUUIDNotFound,
+			waitSeconds: 10,
+			serverDone:  false,
+			httpStatus:  http.StatusNotFound,
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+				done := "false"
+				if tt.serverDone {
+					done = "true"
+				}
+				rw.WriteHeader(tt.httpStatus)
+				if tt.httpStatus == http.StatusOK {
+					_, _ = rw.Write([]byte(`{"uuid":"` + tt.uuid + `","done":` + done + `}`))
+				} else {
+					_, _ = rw.Write([]byte(`{"error":"not found"}`))
+				}
+			}))
+			defer s.Close()
+
+			client, err := NewClient(s.URL, token, false, nil)
+			if err != nil {
+				t.Fatalf("NewClient() error = %v", err)
+			}
+
+			gotResult, err := client.GetResultByUUIDWithWait(context.Background(), tt.uuid, tt.waitSeconds)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetResultByUUIDWithWait() error = %v, wantErr = %t", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && !reflect.DeepEqual(gotResult, tt.wantResult) {
+				t.Errorf("GetResultByUUIDWithWait() got = %+v, want = %+v", gotResult, tt.wantResult)
+			}
+		})
+	}
+}
+
+func TestClient_GetResultByUUIDWithWait_InvalidWait_ErrorType(t *testing.T) {
+	client, err := NewClient("http://localhost", token, false, nil)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	_, err = client.GetResultByUUIDWithWait(context.Background(), testUUIDValid, -1)
+	if !errors.Is(err, ErrInvalidWaitSeconds) {
+		t.Errorf("expected ErrInvalidWaitSeconds, got %v", err)
+	}
+
+	_, err = client.GetResultByUUIDWithWait(context.Background(), testUUIDValid, MaxWaitSeconds+1)
+	if !errors.Is(err, ErrInvalidWaitSeconds) {
+		t.Errorf("expected ErrInvalidWaitSeconds for wait > MaxWaitSeconds, got %v", err)
+	}
+}
+
+func TestClient_GetResultByUUIDWithWait_ContextCancel(t *testing.T) {
+	started := make(chan struct{})
+	s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		close(started)
+		// Simulate a slow server that outlasts the context.
+		time.Sleep(200 * time.Millisecond)
+		_, _ = rw.Write([]byte(`{"uuid":"` + testUUIDValid + `","done":true}`))
+	}))
+	defer s.Close()
+
+	client, err := NewClient(s.URL, token, false, nil)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, e := client.GetResultByUUIDWithWait(ctx, testUUIDValid, 60)
+		errCh <- e
+	}()
+
+	<-started // ensure the request reached the server before context expires
+	err = <-errCh
+	if err == nil {
+		t.Error("expected error due to context cancellation, got nil")
+	}
+}
+
+func TestWaitSecondsForContext(t *testing.T) {
+	t.Run("no deadline returns maxServerWait", func(t *testing.T) {
+		got := waitSecondsForContext(context.Background())
+		if got != 60 {
+			t.Errorf("waitSecondsForContext() = %d, want 60", got)
+		}
+	})
+
+	t.Run("long deadline capped at 60", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		got := waitSecondsForContext(ctx)
+		if got != 60 {
+			t.Errorf("waitSecondsForContext() = %d, want 60", got)
+		}
+	})
+
+	t.Run("short deadline returned as-is", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		got := waitSecondsForContext(ctx)
+		// Remaining time is ~5 s; allow 1 s of slop for slow CI.
+		if got < 4 || got > 5 {
+			t.Errorf("waitSecondsForContext() = %d, want ~5", got)
+		}
+	})
+
+	t.Run("already expired context returns 0", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+		defer cancel()
+		time.Sleep(5 * time.Millisecond) // ensure expired
+		got := waitSecondsForContext(ctx)
+		if got != 0 {
+			t.Errorf("waitSecondsForContext() = %d, want 0", got)
+		}
+	})
+}
+
+// TestWaitForUUID_DetectMode_UsesWaitParam verifies that waitForUUID sends the
+// ?wait= query parameter when in detect mode (not syndetect).
+func TestWaitForUUID_DetectMode_UsesWaitParam(t *testing.T) {
+	callCount := 0
+	waitParamsSeen := []string{}
+
+	// First call returns done=false; second call returns done=true.
+	s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		callCount++
+		waitParamsSeen = append(waitParamsSeen, req.URL.Query().Get("wait"))
+		done := "false"
+		if callCount >= 2 {
+			done = "true"
+		}
+		rw.WriteHeader(http.StatusOK)
+		_, _ = rw.Write([]byte(`{"uuid":"` + testUUIDValid + `","done":` + done + `}`))
+	}))
+	defer s.Close()
+
+	client, err := NewClient(s.URL, token, false, nil)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := client.waitForUUID(ctx, testUUIDValid, 2*time.Second)
+	if err != nil {
+		t.Fatalf("waitForUUID() error = %v", err)
+	}
+	if !result.Done {
+		t.Error("expected done=true")
+	}
+	if callCount < 2 {
+		t.Errorf("expected at least 2 calls, got %d", callCount)
+	}
+	// Every call should have a non-empty wait param.
+	for i, w := range waitParamsSeen {
+		if w == "" {
+			t.Errorf("call %d: expected non-empty 'wait' query param in detect mode", i+1)
+		}
+	}
+}
+
+// TestWaitForUUID_SyndetectMode_NoWaitParam verifies that waitForUUID does NOT
+// send the ?wait= query parameter when in syndetect mode.
+func TestWaitForUUID_SyndetectMode_NoWaitParam(t *testing.T) {
+	callCount := 0
+
+	s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		callCount++
+		if req.URL.Query().Has("wait") {
+			// Fail the test from inside the handler — use a flag checked after.
+			rw.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		done := "false"
+		if callCount >= 2 {
+			done = "true"
+		}
+		rw.WriteHeader(http.StatusOK)
+		// syndetect response: UUID in "id" field, files as number
+		_, _ = rw.Write([]byte(`{"id":"` + testUUIDValid + `","done":` + done + `}`))
+	}))
+	defer s.Close()
+
+	client, err := NewClient(s.URL, token, false, nil)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	client.syndetect = true
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := client.waitForUUID(ctx, testUUIDValid, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("waitForUUID() error = %v", err)
+	}
+	if !result.Done {
+		t.Error("expected done=true")
+	}
+}
+
+// TestWaitForUUID_DetectMode_Timeout verifies that waitForUUID returns
+// ErrTimeout when the context deadline passes before the server returns done=true.
+func TestWaitForUUID_DetectMode_Timeout(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+		_, _ = rw.Write([]byte(`{"uuid":"` + testUUIDValid + `","done":false}`))
+	}))
+	defer s.Close()
+
+	client, err := NewClient(s.URL, token, false, nil)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+
+	_, err = client.waitForUUID(ctx, testUUIDValid, 2*time.Second)
+	if !errors.Is(err, ErrTimeout) {
+		t.Errorf("expected ErrTimeout, got %v", err)
+	}
+}

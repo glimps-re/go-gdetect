@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,7 +42,15 @@ var (
 	// ErrNotAvailable is returned when a method is called that is not supported
 	// in the currently active API mode (e.g., calling ExportResult in SynDetect mode).
 	ErrNotAvailable = errors.New("this feature is not available")
+	// ErrInvalidWaitSeconds is returned when a waitSeconds parameter is negative or
+	// exceeds MaxWaitSeconds.
+	ErrInvalidWaitSeconds = errors.New("waitSeconds must be between 0 and MaxWaitSeconds")
 )
+
+// MaxWaitSeconds is the maximum allowed value for the server-side wait parameter
+// on the /results/{UUID} endpoint. The server will hold the connection open for
+// at most this many seconds waiting for the analysis to complete.
+const MaxWaitSeconds = 300
 
 // maxResponseSize caps the amount of data read from API responses to prevent
 // memory exhaustion from a malicious or compromised server (50 MB).
@@ -83,6 +92,7 @@ func (e FeatureNotAvailableError) Error() string {
 // querying profile status.
 type GDetectSubmitter interface {
 	GetResultByUUID(ctx context.Context, uuid string) (result Result, err error)
+	GetResultByUUIDWithWait(ctx context.Context, uuid string, waitSeconds int) (result Result, err error)
 	GetResultBySHA256(ctx context.Context, sha256 string) (result Result, err error)
 	GetResults(ctx context.Context, from int, size int, tags ...string) (submissions []Submission, err error)
 	SubmitFile(ctx context.Context, filepath string, options SubmitOptions) (uuid string, err error)
@@ -518,9 +528,11 @@ func (c *Client) getPath(path string) (string, error) {
 	return "", ErrPathNotFound
 }
 
-// GetResultByUUID retrieves result using results endpoint on Detect API with
-// given analysis ID.
-func (c *Client) GetResultByUUID(ctx context.Context, analysisID string) (result Result, err error) {
+// getResultByUUID is the internal implementation for retrieving an analysis result
+// by UUID. When waitSeconds > 0 and the client is in detect mode (not syndetect),
+// a ?wait=N query parameter is added to instruct the server to hold the connection
+// open for up to N seconds until the analysis completes.
+func (c *Client) getResultByUUID(ctx context.Context, analysisID string, waitSeconds int) (result Result, err error) {
 	if !reValidUUID.MatchString(analysisID) {
 		err = ErrInvalidUUID
 		return
@@ -529,7 +541,14 @@ func (c *Client) GetResultByUUID(ctx context.Context, analysisID string) (result
 	if err != nil {
 		return
 	}
-	request, err := c.prepareRequest(ctx, "GET", resultsPath+analysisID, nil)
+
+	var request *http.Request
+	if waitSeconds > 0 && !c.syndetect {
+		queries := map[string]string{"wait": strconv.Itoa(waitSeconds)}
+		request, err = c.prepareRequest(ctx, "GET", resultsPath+analysisID, nil, queries)
+	} else {
+		request, err = c.prepareRequest(ctx, "GET", resultsPath+analysisID, nil)
+	}
 	if err != nil {
 		return
 	}
@@ -571,6 +590,33 @@ func (c *Client) GetResultByUUID(ctx context.Context, analysisID string) (result
 	}
 
 	return
+}
+
+// GetResultByUUID retrieves result using results endpoint on Detect API with
+// given analysis ID. The server responds immediately regardless of whether the
+// analysis is complete (done may be false). Use GetResultByUUIDWithWait to
+// instruct the server to hold the connection until the analysis completes.
+func (c *Client) GetResultByUUID(ctx context.Context, analysisID string) (result Result, err error) {
+	return c.getResultByUUID(ctx, analysisID, 0)
+}
+
+// GetResultByUUIDWithWait retrieves an analysis result by UUID, instructing the
+// server to hold the connection open for up to waitSeconds seconds until the
+// analysis is complete. When the analysis finishes before the timeout, the server
+// returns immediately with done=true. If not, done=false is returned and the
+// caller may poll again.
+//
+// waitSeconds must be in the range [0, MaxWaitSeconds]. Use 0 to get the same
+// behaviour as GetResultByUUID (immediate response). The wait parameter is only
+// sent in Detect mode; in SynDetect mode the call behaves like GetResultByUUID.
+//
+// Returns ErrInvalidWaitSeconds when waitSeconds is negative or exceeds MaxWaitSeconds.
+func (c *Client) GetResultByUUIDWithWait(ctx context.Context, analysisID string, waitSeconds int) (result Result, err error) {
+	if waitSeconds < 0 || waitSeconds > MaxWaitSeconds {
+		err = ErrInvalidWaitSeconds
+		return
+	}
+	return c.getResultByUUID(ctx, analysisID, waitSeconds)
 }
 
 // GetResultBySHA256 searches for a previous analysis using the search endpoint of
@@ -927,7 +973,56 @@ func (c *Client) waitforWithPreGet(ctx context.Context, r io.ReadSeeker, pullTim
 	return
 }
 
+// waitSecondsForContext computes how many seconds to pass as the server-side
+// wait parameter given the remaining context deadline. The value is capped at
+// maxServerWait (60 s) to avoid holding server connections for excessively long
+// periods. Returns 0 when the context has no deadline or when the remaining
+// time is less than one second.
+func waitSecondsForContext(ctx context.Context) int {
+	const maxServerWait = 60
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return maxServerWait
+	}
+	remaining := int(time.Until(deadline).Seconds())
+	if remaining <= 0 {
+		return 0
+	}
+	if remaining > maxServerWait {
+		return maxServerWait
+	}
+	return remaining
+}
+
 func (c *Client) waitForUUID(ctx context.Context, analysisID string, pullTime time.Duration) (result Result, err error) {
+	// In detect mode, use the server-side ?wait= parameter to reduce polling
+	// round-trips. The server holds the connection open for up to waitSeconds
+	// seconds and returns immediately when the analysis completes.
+	// In syndetect mode the wait parameter is not documented, so we fall back
+	// to the original ticker-based polling.
+	if !c.syndetect {
+		for {
+			select {
+			case <-ctx.Done():
+				err = ErrTimeout
+				return
+			default:
+			}
+			wait := waitSecondsForContext(ctx)
+			if wait == 0 {
+				err = ErrTimeout
+				return
+			}
+			result, err = c.getResultByUUID(ctx, analysisID, wait)
+			if err != nil {
+				return
+			}
+			if result.Done {
+				return
+			}
+		}
+	}
+
 	ticker := time.NewTicker(pullTime)
 	defer ticker.Stop()
 	for {

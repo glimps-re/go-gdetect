@@ -109,6 +109,19 @@ func TestExecute(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "VALID GET WITH WAIT",
+			fields: fields{
+				command: "get",
+				args:    rootUUIDValid,
+				flags: []string{
+					"--token", token,
+					"--wait", "30",
+				},
+			},
+			wantOut: `{"uuid":"` + rootUUIDValid + `","sha256":"","sha1":"","md5":"","ssdeep":"","is_malware":false,"score":0,"done":true,"timestamp":0,"filetype":"","size":0,"file_count":0,"duration":0,"special_status_code":0}`,
+			wantErr: false,
+		},
+		{
 			name: "INVALID GET URLS NO SID",
 			fields: fields{
 				command: "get",
