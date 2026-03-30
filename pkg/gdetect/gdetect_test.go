@@ -24,6 +24,36 @@ func compareClients(c1 *Client, c2 *Client) (equal bool) {
 
 var token = "abcdef01-23456789-abcdef01-23456789-abcdef01"
 
+// Test UUID constants in standard UUID format (8-4-4-4-12 hex chars).
+const (
+	testUUIDValid      = "ab000001-0000-0000-0000-000000000001"
+	testUUIDValid2     = "ab000001-0000-0000-0000-000000000002"
+	testUUIDTimeout    = "ab000001-0000-0000-0000-000000000003"
+	testUUIDNotFound   = "ab000001-0000-0000-0000-000000000004"
+	testUUIDServerErr  = "ab000001-0000-0000-0000-000000000005"
+	testUUIDBadJSON    = "ab000001-0000-0000-0000-000000000006"
+	testUUIDForbidden  = "ab000001-0000-0000-0000-000000000007"
+	testUUIDNeverDone  = "ab000001-0000-0000-0000-000000000008"
+	testUUIDWaitPoll   = "ab000001-0000-0000-0000-000000000009"
+	testUUIDPDF        = "ab000001-0000-0000-0000-00000000000a"
+	testUUIDJSONFull   = "ab000001-0000-0000-0000-00000000000b"
+	testUUIDMISP       = "ab000001-0000-0000-0000-00000000000c"
+	testUUIDSTIX       = "ab000001-0000-0000-0000-00000000000d"
+	testUUIDMarkdown   = "ab000001-0000-0000-0000-00000000000e"
+	testUUIDCSV        = "ab000001-0000-0000-0000-00000000000f"
+	testUUIDBadRequest = "ab000001-0000-0000-0000-000000000010"
+)
+
+// Test SHA256 constants (64 hex chars).
+const (
+	testSHA256Valid     = "ab00000100000000000000000000000000000000000000000000000000000001"
+	testSHA256NotFound  = "ab00000100000000000000000000000000000000000000000000000000000004"
+	testSHA256Forbidden = "ab00000100000000000000000000000000000000000000000000000000000007"
+	testSHA256ServerErr = "ab00000100000000000000000000000000000000000000000000000000000005"
+	testSHA256Timeout   = "ab00000100000000000000000000000000000000000000000000000000000003"
+	testSHA256BadJSON   = "ab00000100000000000000000000000000000000000000000000000000000006"
+)
+
 func TestNewClient(t *testing.T) {
 	type args struct {
 		endpoint   string
@@ -242,6 +272,7 @@ func TestClient_SubmitFile(t *testing.T) {
 					if strings.TrimSpace(req.URL.Path) != "/api/lite/v2/submit" {
 						t.Errorf("handler.SubmitFile() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 					}
+					req.Body = http.MaxBytesReader(rw, req.Body, 10*1024*1024)
 					switch strings.TrimSpace(req.FormValue("description")) {
 					case "valid test":
 						_, err := rw.Write([]byte(`{"uuid":"1234", "status": true}`))
@@ -354,16 +385,16 @@ func TestClient_GetResultByUUID(t *testing.T) {
 			name: "VALID",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_valid_test",
+				uuid: testUUIDValid,
 			},
 			wantErr:    false,
-			wantResult: Result{UUID: "1234_valid_test", Done: true},
+			wantResult: Result{UUID: testUUIDValid, Done: true},
 		},
 		{
 			name: "TIMEOUT",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_timeout",
+				uuid: testUUIDTimeout,
 			},
 			wantErr: true,
 			timeout: 5 * time.Millisecond,
@@ -372,7 +403,7 @@ func TestClient_GetResultByUUID(t *testing.T) {
 			name: "NOT FOUND",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_not_found",
+				uuid: testUUIDNotFound,
 			},
 			wantErr: true,
 		},
@@ -380,7 +411,7 @@ func TestClient_GetResultByUUID(t *testing.T) {
 			name: "INTERNAL SERVER ERROR",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_server_error",
+				uuid: testUUIDServerErr,
 			},
 			wantErr: true,
 		},
@@ -388,7 +419,7 @@ func TestClient_GetResultByUUID(t *testing.T) {
 			name: "BAD JSON",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_bad_json",
+				uuid: testUUIDBadJSON,
 			},
 			wantErr: true,
 		},
@@ -404,34 +435,34 @@ func TestClient_GetResultByUUID(t *testing.T) {
 						t.Errorf("handler.GetResultByUUID() %v error = unexpected METHOD: %v", tt.name, req.Method)
 					}
 					switch strings.TrimSpace(req.URL.Path) {
-					case "/api/lite/v2/results/1234_valid_test":
+					case "/api/lite/v2/results/" + testUUIDValid:
 						rw.WriteHeader(http.StatusOK)
-						_, err := rw.Write([]byte(`{"uuid":"1234_valid_test", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/results/1234_timeout":
+					case "/api/lite/v2/results/" + testUUIDTimeout:
 						time.Sleep(15 * time.Millisecond)
 						rw.WriteHeader(http.StatusOK)
-						_, err := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDTimeout + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/results/1234_not_found":
+					case "/api/lite/v2/results/" + testUUIDNotFound:
 						rw.WriteHeader(http.StatusNotFound)
-						_, err := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDNotFound + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/results/1234_server_error":
+					case "/api/lite/v2/results/" + testUUIDServerErr:
 						rw.WriteHeader(http.StatusInternalServerError)
-						_, err := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDServerErr + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/results/1234_bad_json":
+					case "/api/lite/v2/results/" + testUUIDBadJSON:
 						rw.WriteHeader(http.StatusOK)
-						_, err := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true "done": true`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDBadJSON + `", "status": true "done": true`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
@@ -482,16 +513,16 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 			name: "VALID",
 			args: args{
 				ctx:    context.Background(),
-				sha256: "1234_valid_test",
+				sha256: testSHA256Valid,
 			},
 			wantErr:    false,
-			wantResult: Result{UUID: "1234_valid_test", Done: true},
+			wantResult: Result{UUID: testUUIDValid, Done: true},
 		},
 		{
 			name: "NOT FOUND",
 			args: args{
 				ctx:    context.Background(),
-				sha256: "1234_not_found",
+				sha256: testSHA256NotFound,
 			},
 			wantErr: true,
 		},
@@ -499,7 +530,7 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 			name: "FORBIDDEN",
 			args: args{
 				ctx:    context.Background(),
-				sha256: "1234_forbidden",
+				sha256: testSHA256Forbidden,
 			},
 			wantErr: true,
 		},
@@ -507,7 +538,7 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 			name: "INTERNAL SERVER ERROR",
 			args: args{
 				ctx:    context.Background(),
-				sha256: "1234_server_error",
+				sha256: testSHA256ServerErr,
 			},
 			wantErr: true,
 		},
@@ -515,7 +546,7 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 			name: "TIMEOUT",
 			args: args{
 				ctx:    context.Background(),
-				sha256: "1234_timeout",
+				sha256: testSHA256Timeout,
 			},
 			wantErr: true,
 			timeout: time.Millisecond * 5,
@@ -524,7 +555,7 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 			name: "BAD JSON",
 			args: args{
 				ctx:    context.Background(),
-				sha256: "1234_bad_json",
+				sha256: testSHA256BadJSON,
 			},
 			wantErr: true,
 		},
@@ -540,40 +571,40 @@ func TestClient_GetResultBySHA256(t *testing.T) {
 						t.Errorf("handler.GetResultBySHA256() %v error = unexpected METHOD: %v", tt.name, req.Method)
 					}
 					switch strings.TrimSpace(req.URL.Path) {
-					case "/api/lite/v2/search/1234_valid_test":
+					case "/api/lite/v2/search/" + testSHA256Valid:
 						rw.WriteHeader(http.StatusOK)
-						_, err := rw.Write([]byte(`{"uuid":"1234_valid_test", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/search/1234_timeout":
+					case "/api/lite/v2/search/" + testSHA256Timeout:
 						time.Sleep(15 * time.Millisecond)
 						rw.WriteHeader(http.StatusOK)
-						_, err := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDTimeout + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/search/1234_not_found":
+					case "/api/lite/v2/search/" + testSHA256NotFound:
 						rw.WriteHeader(http.StatusNotFound)
-						_, err := rw.Write([]byte(`{"uuid":"1234_not_found", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDNotFound + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/search/1234_server_error":
+					case "/api/lite/v2/search/" + testSHA256ServerErr:
 						rw.WriteHeader(http.StatusInternalServerError)
-						_, err := rw.Write([]byte(`{"uuid":"1234_server_error", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDServerErr + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/search/1234_bad_json":
+					case "/api/lite/v2/search/" + testSHA256BadJSON:
 						rw.WriteHeader(http.StatusOK)
-						_, err := rw.Write([]byte(`{"uuid":"1234_bad_json", "status": true, "done": true`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDBadJSON + `", "status": true, "done": true`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/search/1234_forbidden":
+					case "/api/lite/v2/search/" + testSHA256Forbidden:
 						rw.WriteHeader(http.StatusForbidden)
-						_, err := rw.Write([]byte(`{"uuid":"1234_forbidden", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDForbidden + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
@@ -634,7 +665,7 @@ func TestClient_WaitForFile(t *testing.T) {
 				pullTime:    15 * time.Millisecond,
 				bypassCache: true,
 			},
-			wantResult: Result{UUID: "1234", Done: true},
+			wantResult: Result{UUID: testUUIDValid, Done: true},
 			wantErr:    false,
 		},
 		{
@@ -646,7 +677,7 @@ func TestClient_WaitForFile(t *testing.T) {
 				timeout:  180 * time.Second,
 				pullTime: 15 * time.Millisecond,
 			},
-			wantResult: Result{UUID: "1234_waiting_one_polling", Done: true},
+			wantResult: Result{UUID: testUUIDWaitPoll, Done: true},
 			wantErr:    false,
 		},
 		{
@@ -658,7 +689,7 @@ func TestClient_WaitForFile(t *testing.T) {
 				timeout:  180 * time.Second,
 				pullTime: 15 * time.Millisecond,
 			},
-			wantResult: Result{UUID: "1234", Done: true},
+			wantResult: Result{UUID: testUUIDValid, Done: true},
 			wantErr:    false,
 		},
 		{
@@ -685,6 +716,7 @@ func TestClient_WaitForFile(t *testing.T) {
 						if req.Method != http.MethodPost {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
+						req.Body = http.MaxBytesReader(rw, req.Body, 10*1024*1024)
 						if err := req.ParseMultipartForm(4096); err != nil {
 							http.NotFoundHandler().ServeHTTP(rw, req)
 							return
@@ -695,37 +727,37 @@ func TestClient_WaitForFile(t *testing.T) {
 						}
 						switch h.Filename {
 						case "false_mirai":
-							_, err = rw.Write([]byte(`{"uuid":"1234", "status": true}`))
+							_, err = rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true}`))
 							if err != nil {
 								t.Fatalf("cannot write test response: %s", err)
 							}
 						case "false_cryptolocker":
-							_, err = rw.Write([]byte(`{"uuid":"1234_never_done", "status": true}`))
+							_, err = rw.Write([]byte(`{"uuid":"` + testUUIDNeverDone + `", "status": true}`))
 							if err != nil {
 								t.Fatalf("cannot write test response: %s", err)
 							}
 						}
-					case "/api/lite/v2/results/1234":
+					case "/api/lite/v2/results/" + testUUIDValid:
 						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						_, err := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/results/1234_waiting_one_polling":
+					case "/api/lite/v2/results/" + testUUIDWaitPoll:
 						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						_, err := rw.Write([]byte(`{"uuid":"1234_waiting_one_polling", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDWaitPoll + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/results/1234_never_done":
+					case "/api/lite/v2/results/" + testUUIDNeverDone:
 						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						_, err := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": false}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": false}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
@@ -733,7 +765,7 @@ func TestClient_WaitForFile(t *testing.T) {
 						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						_, err := rw.Write([]byte(`{"uuid":"1234_waiting_one_polling", "status": true, "done": false}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDWaitPoll + `", "status": true, "done": false}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
@@ -808,7 +840,7 @@ func TestClient_WaitForReader(t *testing.T) {
 				pullTime:    15 * time.Millisecond,
 				bypassCache: true,
 			},
-			wantResult: Result{UUID: "1234", Done: true},
+			wantResult: Result{UUID: testUUIDValid, Done: true},
 			wantErr:    false,
 		},
 		{
@@ -821,7 +853,7 @@ func TestClient_WaitForReader(t *testing.T) {
 				timeout:  180 * time.Second,
 				pullTime: 15 * time.Millisecond,
 			},
-			wantResult: Result{UUID: "1234", Done: true},
+			wantResult: Result{UUID: testUUIDValid, Done: true},
 			wantErr:    false,
 		},
 		{
@@ -834,7 +866,7 @@ func TestClient_WaitForReader(t *testing.T) {
 				timeout:  180 * time.Second,
 				pullTime: 15 * time.Millisecond,
 			},
-			wantResult: Result{UUID: "1234", Done: true},
+			wantResult: Result{UUID: testUUIDValid, Done: true},
 			wantErr:    false,
 		},
 		{
@@ -895,7 +927,7 @@ func TestClient_WaitForReader(t *testing.T) {
 						if tt.args.content != string(content) {
 							t.Fatalf("bad content, got %s, want %s", content, tt.args.content)
 						}
-						if _, e := rw.Write([]byte(`{"uuid":"1234", "status": true}`)); e != nil {
+						if _, e := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true}`)); e != nil {
 							t.Fatalf("could not write response, error: %v", e)
 						}
 
@@ -905,11 +937,11 @@ func TestClient_WaitForReader(t *testing.T) {
 						}
 						switch {
 						case tt.fields.getResultsNeverDone:
-							if _, e := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": false}`)); e != nil {
+							if _, e := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": false}`)); e != nil {
 								t.Fatalf("could not write response, error: %v", e)
 							}
 						default:
-							if _, e := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`)); e != nil {
+							if _, e := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`)); e != nil {
 								t.Fatalf("could not write response, error: %v", e)
 							}
 						}
@@ -919,13 +951,13 @@ func TestClient_WaitForReader(t *testing.T) {
 						}
 						switch {
 						case tt.fields.searchNotDone:
-							if _, e := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": false}`)); e != nil {
+							if _, e := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": false}`)); e != nil {
 								t.Fatalf("could not write response, error: %v", e)
 							}
 						case tt.fields.searchNotFound:
 							rw.WriteHeader(http.StatusNotFound)
 						default:
-							if _, e := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`)); e != nil {
+							if _, e := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`)); e != nil {
 								t.Fatalf("could not write response, error: %v", e)
 							}
 						}
@@ -988,7 +1020,7 @@ func TestClient_WaitForFile_Syndetect(t *testing.T) {
 				pullTime:    15 * time.Millisecond,
 				bypassCache: true,
 			},
-			wantResult: Result{UUID: "1234", ID: "1234", Done: true},
+			wantResult: Result{UUID: testUUIDValid, ID: testUUIDValid, Done: true},
 			wantErr:    false,
 		},
 		{
@@ -1000,7 +1032,7 @@ func TestClient_WaitForFile_Syndetect(t *testing.T) {
 				timeout:  180 * time.Second,
 				pullTime: 15 * time.Millisecond,
 			},
-			wantResult: Result{UUID: "1234", Done: true},
+			wantResult: Result{UUID: testUUIDValid, Done: true},
 			wantErr:    false,
 		},
 		{
@@ -1012,7 +1044,7 @@ func TestClient_WaitForFile_Syndetect(t *testing.T) {
 				timeout:  180 * time.Second,
 				pullTime: 15 * time.Millisecond,
 			},
-			wantResult: Result{UUID: "1234", ID: "1234", Done: true},
+			wantResult: Result{UUID: testUUIDValid, ID: testUUIDValid, Done: true},
 			wantErr:    false,
 		},
 		{
@@ -1039,6 +1071,7 @@ func TestClient_WaitForFile_Syndetect(t *testing.T) {
 						if req.Method != http.MethodPost {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
+						req.Body = http.MaxBytesReader(rw, req.Body, 10*1024*1024)
 						if err := req.ParseMultipartForm(4096); err != nil {
 							http.NotFoundHandler().ServeHTTP(rw, req)
 							return
@@ -1049,29 +1082,29 @@ func TestClient_WaitForFile_Syndetect(t *testing.T) {
 						}
 						switch h.Filename {
 						case "false_mirai":
-							_, err := rw.Write([]byte(`{"id":"1234", "status": true}`))
+							_, err := rw.Write([]byte(`{"id":"` + testUUIDValid + `", "status": true}`))
 							if err != nil {
 								t.Fatalf("cannot write test response: %s", err)
 							}
 						case "false_cryptolocker":
-							_, err := rw.Write([]byte(`{"id":"1234_never_done", "status": true}`))
+							_, err := rw.Write([]byte(`{"id":"` + testUUIDNeverDone + `", "status": true}`))
 							if err != nil {
 								t.Fatalf("cannot write test response: %s", err)
 							}
 						}
-					case "/api/v1/results/1234":
+					case "/api/v1/results/" + testUUIDValid:
 						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						_, err := rw.Write([]byte(`{"id":"1234", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"id":"` + testUUIDValid + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/v1/results/1234_never_done":
+					case "/api/v1/results/" + testUUIDNeverDone:
 						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						_, err := rw.Write([]byte(`{"id":"1234", "status": true, "done": false}`))
+						_, err := rw.Write([]byte(`{"id":"` + testUUIDValid + `", "status": true, "done": false}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
@@ -1079,7 +1112,7 @@ func TestClient_WaitForFile_Syndetect(t *testing.T) {
 						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						_, err := rw.Write([]byte(`{"uuid":"1234", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
@@ -1087,7 +1120,7 @@ func TestClient_WaitForFile_Syndetect(t *testing.T) {
 						if req.Method != http.MethodGet {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						_, err := rw.Write([]byte(`{"id":"1234", "done": false}`))
+						_, err := rw.Write([]byte(`{"id":"` + testUUIDValid + `", "done": false}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
@@ -1145,7 +1178,7 @@ func TestClient_ExtractTokenViewURL(t *testing.T) {
 		wantURLTokenView string
 		wantErr          bool
 	}{
-		{
+		{ //nolint:gosec,nolintlint // G101: "5678" is a test token value, not a real credential
 			name: "VALID",
 			fields: fields{
 				Endpoint: "http://gdetect/api",
@@ -1314,7 +1347,7 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 			},
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_syndetect",
+				uuid: testUUIDValid,
 			},
 			wantErr: true,
 		},
@@ -1322,7 +1355,7 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 			name: "TIMEOUT",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_timeout",
+				uuid: testUUIDTimeout,
 			},
 			wantErr: true,
 			timeout: 5 * time.Millisecond,
@@ -1331,7 +1364,7 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 			name: "NOT FOUND",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_not_found",
+				uuid: testUUIDNotFound,
 			},
 			wantErr: true,
 		},
@@ -1339,7 +1372,7 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 			name: "INTERNAL SERVER ERROR",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_server_error",
+				uuid: testUUIDServerErr,
 			},
 			wantErr: true,
 		},
@@ -1347,7 +1380,7 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 			name: "BAD JSON",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_bad_json",
+				uuid: testUUIDBadJSON,
 			},
 			wantErr: true,
 		},
@@ -1363,34 +1396,34 @@ func TestClient_GetFullSubmissionByUUID(t *testing.T) {
 						t.Errorf("handler.GetResultByUUID() %v error = unexpected METHOD: %v", tt.name, req.Method)
 					}
 					switch strings.TrimSpace(req.URL.Path) {
-					case "/api/lite/v2/results/1234_valid_test/full":
+					case "/api/lite/v2/results/" + testUUIDValid + "/full":
 						rw.WriteHeader(http.StatusOK)
-						_, err := rw.Write([]byte(`{"uuid":"1234_valid_test", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/results/1234_timeout/full":
+					case "/api/lite/v2/results/" + testUUIDTimeout + "/full":
 						time.Sleep(15 * time.Millisecond)
 						rw.WriteHeader(http.StatusOK)
-						_, err := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDTimeout + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/results/1234_not_found/full":
+					case "/api/lite/v2/results/" + testUUIDNotFound + "/full":
 						rw.WriteHeader(http.StatusNotFound)
-						_, err := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDTimeout + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/results/1234_server_error/full":
+					case "/api/lite/v2/results/" + testUUIDServerErr + "/full":
 						rw.WriteHeader(http.StatusInternalServerError)
-						_, err := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true, "done": true}`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDTimeout + `", "status": true, "done": true}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
-					case "/api/lite/v2/results/1234_bad_json/full":
+					case "/api/lite/v2/results/" + testUUIDBadJSON + "/full":
 						rw.WriteHeader(http.StatusOK)
-						_, err := rw.Write([]byte(`{"uuid":"1234_timeout", "status": true "done": true`))
+						_, err := rw.Write([]byte(`{"uuid":"` + testUUIDTimeout + `", "status": true "done": true`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
@@ -1923,7 +1956,7 @@ func TestClient_ExportResult(t *testing.T) {
 			name: "VALID PDF EXPORT",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_pdf",
+				uuid: testUUIDPDF,
 				options: ExportOptions{
 					Format: ExportFormatPDF,
 					Layout: ExportLayoutEN,
@@ -1937,7 +1970,7 @@ func TestClient_ExportResult(t *testing.T) {
 			name: "VALID JSON EXPORT FULL",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_json_full",
+				uuid: testUUIDJSONFull,
 				options: ExportOptions{
 					Format: ExportFormatJSON,
 					Layout: ExportLayoutFR,
@@ -1951,7 +1984,7 @@ func TestClient_ExportResult(t *testing.T) {
 			name: "VALID MISP EXPORT",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_misp",
+				uuid: testUUIDMISP,
 				options: ExportOptions{
 					Format: ExportFormatMISP,
 					Layout: ExportLayoutEN,
@@ -1965,7 +1998,7 @@ func TestClient_ExportResult(t *testing.T) {
 			name: "VALID STIX EXPORT",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_stix",
+				uuid: testUUIDSTIX,
 				options: ExportOptions{
 					Format: ExportFormatSTIX,
 					Layout: ExportLayoutEN,
@@ -1979,7 +2012,7 @@ func TestClient_ExportResult(t *testing.T) {
 			name: "VALID MARKDOWN EXPORT",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_markdown",
+				uuid: testUUIDMarkdown,
 				options: ExportOptions{
 					Format: ExportFormatMarkdown,
 					Layout: ExportLayoutEN,
@@ -1993,7 +2026,7 @@ func TestClient_ExportResult(t *testing.T) {
 			name: "VALID CSV EXPORT",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_csv",
+				uuid: testUUIDCSV,
 				options: ExportOptions{
 					Format: ExportFormatCSV,
 					Layout: ExportLayoutEN,
@@ -2010,7 +2043,7 @@ func TestClient_ExportResult(t *testing.T) {
 			},
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_syndetect",
+				uuid: testUUIDValid,
 				options: ExportOptions{
 					Format: ExportFormatJSON,
 					Layout: ExportLayoutEN,
@@ -2024,7 +2057,7 @@ func TestClient_ExportResult(t *testing.T) {
 			name: "NOT FOUND",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_not_found",
+				uuid: testUUIDNotFound,
 				options: ExportOptions{
 					Format: ExportFormatJSON,
 					Layout: ExportLayoutEN,
@@ -2038,7 +2071,7 @@ func TestClient_ExportResult(t *testing.T) {
 			name: "FORBIDDEN",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_forbidden",
+				uuid: testUUIDForbidden,
 				options: ExportOptions{
 					Format: ExportFormatJSON,
 					Layout: ExportLayoutEN,
@@ -2052,7 +2085,7 @@ func TestClient_ExportResult(t *testing.T) {
 			name: "TIMEOUT",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_timeout",
+				uuid: testUUIDTimeout,
 				options: ExportOptions{
 					Format: ExportFormatJSON,
 					Layout: ExportLayoutEN,
@@ -2067,7 +2100,7 @@ func TestClient_ExportResult(t *testing.T) {
 			name: "BAD REQUEST",
 			args: args{
 				ctx:  context.Background(),
-				uuid: "1234_bad_request",
+				uuid: testUUIDBadRequest,
 				options: ExportOptions{
 					Format: ExportFormatJSON,
 					Layout: ExportLayoutEN,
@@ -2096,53 +2129,53 @@ func TestClient_ExportResult(t *testing.T) {
 					full := query.Get("full")
 
 					switch {
-					case strings.Contains(req.URL.Path, "1234_pdf"):
+					case strings.Contains(req.URL.Path, testUUIDPDF):
 						if format != "pdf" || layout != "en" {
 							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 						}
 						rw.WriteHeader(http.StatusOK)
 						_, _ = rw.Write([]byte("%PDF-1.3\n"))
-					case strings.Contains(req.URL.Path, "1234_json_full"):
+					case strings.Contains(req.URL.Path, testUUIDJSONFull):
 						if format != "json" || layout != "fr" || full != "true" {
 							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 						}
 						rw.WriteHeader(http.StatusOK)
 						_, _ = rw.Write([]byte(`{"verdict":"malicious","score":2800}`))
-					case strings.Contains(req.URL.Path, "1234_misp"):
+					case strings.Contains(req.URL.Path, testUUIDMISP):
 						if format != "misp" || layout != "en" {
 							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 						}
 						rw.WriteHeader(http.StatusOK)
 						_, _ = rw.Write([]byte(`{"Event":{"uuid":"test"}}`))
-					case strings.Contains(req.URL.Path, "1234_stix"):
+					case strings.Contains(req.URL.Path, testUUIDSTIX):
 						if format != "stix" {
 							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 						}
 						rw.WriteHeader(http.StatusOK)
 						_, _ = rw.Write([]byte(`{"type":"bundle"}`))
-					case strings.Contains(req.URL.Path, "1234_markdown"):
+					case strings.Contains(req.URL.Path, testUUIDMarkdown):
 						if format != "markdown" {
 							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 						}
 						rw.WriteHeader(http.StatusOK)
 						_, _ = rw.Write([]byte("# GMalware submission report\n"))
-					case strings.Contains(req.URL.Path, "1234_csv"):
+					case strings.Contains(req.URL.Path, testUUIDCSV):
 						if format != "csv" {
 							t.Errorf("handler.ExportResult() %v error = unexpected query params", tt.name)
 						}
 						rw.WriteHeader(http.StatusOK)
 						_, _ = rw.Write([]byte("name,sha256,size\n"))
-					case strings.Contains(req.URL.Path, "1234_timeout"):
+					case strings.Contains(req.URL.Path, testUUIDTimeout):
 						time.Sleep(15 * time.Millisecond)
 						rw.WriteHeader(http.StatusOK)
 						_, _ = rw.Write([]byte(`{"verdict":"malicious"}`))
-					case strings.Contains(req.URL.Path, "1234_not_found"):
+					case strings.Contains(req.URL.Path, testUUIDNotFound):
 						rw.WriteHeader(http.StatusNotFound)
 						_, _ = rw.Write([]byte(`{"status":false,"error":"not found"}`))
-					case strings.Contains(req.URL.Path, "1234_forbidden"):
+					case strings.Contains(req.URL.Path, testUUIDForbidden):
 						rw.WriteHeader(http.StatusForbidden)
 						_, _ = rw.Write([]byte(`{"status":false,"error":"forbidden"}`))
-					case strings.Contains(req.URL.Path, "1234_bad_request"):
+					case strings.Contains(req.URL.Path, testUUIDBadRequest):
 						rw.WriteHeader(http.StatusBadRequest)
 						_, _ = rw.Write([]byte(`{"status":false,"error":"bad request"}`))
 					default:
@@ -2185,4 +2218,215 @@ type ErrorReader struct {
 
 func (e ErrorReader) Read(p []byte) (n int, err error) {
 	return 0, e.err
+}
+
+func TestNewClientFromConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  ClientConfig
+		wantErr bool
+	}{
+		{
+			name: "valid",
+			config: ClientConfig{
+				Endpoint: "http://example.com",
+				Token:    token,
+				Insecure: false,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid insecure",
+			config: ClientConfig{
+				Endpoint: "http://example.com",
+				Token:    token,
+				Insecure: true,
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid token",
+			config: ClientConfig{
+				Endpoint: "http://example.com",
+				Token:    "bad-token",
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, err := NewClientFromConfig(tt.config)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewClientFromConfig() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && client == nil {
+				t.Error("NewClientFromConfig() returned nil client")
+			}
+		})
+	}
+}
+
+func TestFeatureNotAvailableError(t *testing.T) {
+	e := FeatureNotAvailableError{Version: "2.5.0"}
+	want := "feature not available, API version: 2.5.0"
+	if e.Error() != want {
+		t.Errorf("FeatureNotAvailableError.Error() = %v, want %v", e.Error(), want)
+	}
+}
+
+func TestGetPath(t *testing.T) {
+	c := &Client{}
+
+	// Normal detect path
+	path, err := c.getPath("results")
+	if err != nil {
+		t.Errorf("getPath(results) error = %v", err)
+	}
+	if path != "/api/lite/v2/results/" {
+		t.Errorf("getPath(results) = %v, want /api/lite/v2/results/", path)
+	}
+
+	// Unknown path returns error
+	_, err = c.getPath("unknown_path")
+	if err == nil {
+		t.Error("getPath(unknown_path) expected error, got nil")
+	}
+
+	// Syndetect path
+	c.syndetect = true
+	path, err = c.getPath("results")
+	if err != nil {
+		t.Errorf("getPath(results) syndetect error = %v", err)
+	}
+	if path != "/api/v1/results/" {
+		t.Errorf("getPath(results) syndetect = %v, want /api/v1/results/", path)
+	}
+}
+
+func TestGetResultByUUID_InvalidUUID(t *testing.T) {
+	client, err := NewClient("http://example.com", token, false, nil)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	_, err = client.GetResultByUUID(context.Background(), "not-a-valid-uuid")
+	if err == nil {
+		t.Error("GetResultByUUID() with invalid UUID should return error")
+	}
+	if !errors.Is(err, ErrInvalidUUID) {
+		t.Errorf("GetResultByUUID() error = %v, want ErrInvalidUUID", err)
+	}
+}
+
+func TestGetResultBySHA256_InvalidSHA256(t *testing.T) {
+	client, err := NewClient("http://example.com", token, false, nil)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	_, err = client.GetResultBySHA256(context.Background(), "not-a-valid-sha256")
+	if err == nil {
+		t.Error("GetResultBySHA256() with invalid SHA256 should return error")
+	}
+	if !errors.Is(err, ErrInvalidSHA256) {
+		t.Errorf("GetResultBySHA256() error = %v, want ErrInvalidSHA256", err)
+	}
+}
+
+func TestGetFullSubmissionByUUID_InvalidUUID(t *testing.T) {
+	client, err := NewClient("http://example.com", token, false, nil)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	_, err = client.GetFullSubmissionByUUID(context.Background(), "not-a-valid-uuid")
+	if err == nil {
+		t.Error("GetFullSubmissionByUUID() with invalid UUID should return error")
+	}
+	if !errors.Is(err, ErrInvalidUUID) {
+		t.Errorf("GetFullSubmissionByUUID() error = %v, want ErrInvalidUUID", err)
+	}
+}
+
+func TestExportResult_InvalidUUID(t *testing.T) {
+	client, err := NewClient("http://example.com", token, false, nil)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	_, err = client.ExportResult(context.Background(), "not-a-valid-uuid", ExportOptions{
+		Format: ExportFormatJSON,
+		Layout: ExportLayoutEN,
+	})
+	if err == nil {
+		t.Error("ExportResult() with invalid UUID should return error")
+	}
+	if !errors.Is(err, ErrInvalidUUID) {
+		t.Errorf("ExportResult() error = %v, want ErrInvalidUUID", err)
+	}
+}
+
+func TestHTTPError(t *testing.T) {
+	resp := &http.Response{
+		Status:     "404 Not Found",
+		StatusCode: http.StatusNotFound,
+	}
+	e := NewHTTPError(resp, "resource not found")
+	want := "invalid response from endpoint, 404 Not Found: resource not found"
+	if e.Error() != want {
+		t.Errorf("HTTPError.Error() = %v, want %v", e.Error(), want)
+	}
+	if e.Code != http.StatusNotFound {
+		t.Errorf("HTTPError.Code = %v, want %v", e.Code, http.StatusNotFound)
+	}
+}
+
+func TestWaitForReader_InvalidContent(t *testing.T) {
+	s := httptest.NewServer(
+		http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			req.Body = http.MaxBytesReader(rw, req.Body, 10*1024*1024)
+			rw.WriteHeader(http.StatusOK)
+			_, _ = rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`))
+		}),
+	)
+	defer s.Close()
+
+	client, err := NewClient(s.URL, token, false, nil)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	// Test with a reader that returns an error
+	_, err = client.WaitForReader(context.Background(), ErrorReader{err: errors.New("read error")}, WaitForOptions{
+		Timeout:  5 * time.Second,
+		PullTime: 10 * time.Millisecond,
+	})
+	if err == nil {
+		t.Error("WaitForReader() with ErrorReader should return error")
+	}
+}
+
+func BenchmarkCheckToken(b *testing.B) {
+	tok := "abcdef01-23456789-abcdef01-23456789-abcdef01"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = checkToken(tok)
+	}
+}
+
+func BenchmarkGetResultByUUID(b *testing.B) {
+	s := httptest.NewServer(
+		http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			rw.WriteHeader(http.StatusOK)
+			_, _ = rw.Write([]byte(`{"uuid":"` + testUUIDValid + `","done":true}`))
+		}),
+	)
+	defer s.Close()
+
+	client, err := NewClient(s.URL, token, false, nil)
+	if err != nil {
+		b.Fatalf("NewClient() error = %v", err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = client.GetResultByUUID(context.Background(), testUUIDValid)
+	}
 }

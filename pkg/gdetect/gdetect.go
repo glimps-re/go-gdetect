@@ -1,9 +1,9 @@
-// Package gdetect provides implements utility functions to interact with GLIMPS'
-// detect API.
+// Package gdetect provides utility functions for interacting with the GLIMPS
+// Detect and SynDetect malware analysis APIs.
 //
-// The gdetect package should only be used to interact with detect API.
-// Package path implements utility routines for manipulating slash-separated
-// paths.
+// It supports file submission, result retrieval by UUID or SHA256, waiting for
+// analysis completion, status queries, and result export. Both the standard
+// Detect API and the limited SynDetect API variant are supported.
 package gdetect
 
 import (
@@ -37,6 +37,25 @@ var (
 	ErrNoSID        = errors.New("no sid in result")
 	ErrNotAvailable = errors.New("this feature is not available")
 )
+
+// maxResponseSize caps the amount of data read from API responses to prevent
+// memory exhaustion from a malicious or compromised server (50 MB).
+const maxResponseSize = 50 * 1024 * 1024
+
+// reValidToken matches the API token format (40 hex chars in 5 groups of 8).
+var reValidToken = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{8}-[a-f0-9]{8}-[a-f0-9]{8}-[a-f0-9]{8}$`)
+
+// reValidUUID matches a standard UUID format (8-4-4-4-12 hex chars).
+var reValidUUID = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$`)
+
+// reValidSHA256 matches a valid SHA256 hex string (64 lowercase hex chars).
+var reValidSHA256 = regexp.MustCompile(`^[a-f0-9]{64}$`)
+
+// ErrInvalidUUID is returned when a UUID parameter fails format validation.
+var ErrInvalidUUID = errors.New("invalid UUID format")
+
+// ErrInvalidSHA256 is returned when a SHA256 parameter fails format validation.
+var ErrInvalidSHA256 = errors.New("invalid SHA256 format")
 
 var Logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
@@ -77,14 +96,21 @@ type ControllerGDetectSubmitter interface {
 	ControllerSubmitter
 }
 
-type ControllerExtendedGdetectSubmitter interface {
+// ControllerExtendedGdetectSubmitter combines ExtendedGDetectSubmitter with
+// ControllerSubmitter. Deprecated: use ControllerExtendedGDetectSubmitter instead.
+type ControllerExtendedGdetectSubmitter = ControllerExtendedGDetectSubmitter
+
+// ControllerExtendedGDetectSubmitter combines ExtendedGDetectSubmitter with
+// ControllerSubmitter, providing both full analysis capabilities and runtime
+// reconfiguration.
+type ControllerExtendedGDetectSubmitter interface {
 	ExtendedGDetectSubmitter
 	ControllerSubmitter
 }
 
 var (
 	_ ExtendedGDetectSubmitter           = &Client{}
-	_ ControllerExtendedGdetectSubmitter = &Client{}
+	_ ControllerExtendedGDetectSubmitter = &Client{}
 )
 
 type ClientConfig struct {
@@ -330,24 +356,30 @@ func (c *Client) setFromConfig(config ClientConfig) {
 	c.Token = config.Token
 	c.syndetect = config.Syndetect
 	if config.HTTPClient == nil {
-		transport := http.DefaultTransport
 		if config.Insecure {
-			transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // optional insecure
+			// Create a dedicated transport to avoid mutating http.DefaultTransport.
+			transport := http.DefaultTransport.(*http.Transport).Clone()
+			transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // user-requested insecure mode
+			c.HTTPClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
+		} else {
+			c.HTTPClient = &http.Client{Timeout: DefaultTimeout}
 		}
-		c.HTTPClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
 	} else {
 		c.HTTPClient = config.HTTPClient
 	}
 }
 
+// Do executes an HTTP request using the client's underlying HTTP client.
+// The request URL is constructed from the user-configured endpoint, which is
+// intentional by design — callers must ensure the endpoint is a trusted server.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	return c.HTTPClient.Do(req)
+	return c.HTTPClient.Do(req) //nolint:gosec,nolintlint // G704: SSRF by design, endpoint is user-configured and trusted
 }
 
 func checkToken(token string) (err error) {
-	if !regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{8}-[a-f0-9]{8}-[a-f0-9]{8}-[a-f0-9]{8}$`).MatchString(token) {
+	if !reValidToken.MatchString(token) {
 		err = ErrBadToken
 		return
 	}
@@ -419,22 +451,33 @@ var (
 	}
 )
 
-func (c *Client) getPath(path string) string {
+// ErrPathNotFound is returned when an API path key is not found in the path maps.
+var ErrPathNotFound = errors.New("path not found")
+
+func (c *Client) getPath(path string) (string, error) {
 	if c.syndetect {
 		if v, ok := SyndetectPaths[path]; ok {
-			return v
+			return v, nil
 		}
 	}
 	if v, ok := DetectPaths[path]; ok {
-		return v
+		return v, nil
 	}
-	panic("path not found")
+	return "", ErrPathNotFound
 }
 
 // GetResultByUUID retrieves result using results endpoint on Detect API with
 // given analysis ID.
 func (c *Client) GetResultByUUID(ctx context.Context, analysisID string) (result Result, err error) {
-	request, err := c.prepareRequest(ctx, "GET", c.getPath("results")+analysisID, nil)
+	if !reValidUUID.MatchString(analysisID) {
+		err = ErrInvalidUUID
+		return
+	}
+	resultsPath, err := c.getPath("results")
+	if err != nil {
+		return
+	}
+	request, err := c.prepareRequest(ctx, "GET", resultsPath+analysisID, nil)
 	if err != nil {
 		return
 	}
@@ -449,7 +492,7 @@ func (c *Client) GetResultByUUID(ctx context.Context, analysisID string) (result
 			Logger.Warn("cannot close response body", slog.String("error", e.Error()))
 		}
 	}()
-	rawBody, err := io.ReadAll(resp.Body)
+	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return
 	}
@@ -480,7 +523,15 @@ func (c *Client) GetResultByUUID(ctx context.Context, analysisID string) (result
 // GetResultBySHA256 search for an analysis using search endpoint on Detect API with
 // given file SHA256.
 func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result Result, err error) {
-	request, err := c.prepareRequest(ctx, "GET", c.getPath("search")+sha256, nil)
+	if !reValidSHA256.MatchString(sha256) {
+		err = ErrInvalidSHA256
+		return
+	}
+	searchPath, err := c.getPath("search")
+	if err != nil {
+		return
+	}
+	request, err := c.prepareRequest(ctx, "GET", searchPath+sha256, nil)
 	if err != nil {
 		return
 	}
@@ -495,7 +546,7 @@ func (c *Client) GetResultBySHA256(ctx context.Context, sha256 string) (result R
 			Logger.Warn("cannot close response body", slog.String("error", e.Error()))
 		}
 	}()
-	rawBody, err := io.ReadAll(resp.Body)
+	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return
 	}
@@ -623,7 +674,11 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 	}()
 
 	// Post file to API
-	request, err := c.prepareRequest(ctx, http.MethodPost, c.getPath("submit"), pr)
+	submitPath, err := c.getPath("submit")
+	if err != nil {
+		return
+	}
+	request, err := c.prepareRequest(ctx, http.MethodPost, submitPath, pr)
 	if err != nil {
 		return
 	}
@@ -639,7 +694,7 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 			Logger.Warn("cannot close response body", slog.String("error", e.Error()))
 		}
 	}()
-	rawBody, err := io.ReadAll(resp.Body)
+	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return
 	}
@@ -656,7 +711,7 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 	}
 
 	if !response.Status {
-		err = fmt.Errorf("%s", response.Error)
+		err = errors.New(response.Error)
 		return
 	}
 	uuid = response.UUID
@@ -808,6 +863,7 @@ func (c *Client) waitforWithPreGet(ctx context.Context, r io.ReadSeeker, pullTim
 
 func (c *Client) waitForUUID(ctx context.Context, analysisID string, pullTime time.Duration) (result Result, err error) {
 	ticker := time.NewTicker(pullTime)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
@@ -861,6 +917,9 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 	if c.syndetect {
 		return nil, ErrNotAvailable
 	}
+	if !reValidUUID.MatchString(uuid) {
+		return nil, ErrInvalidUUID
+	}
 	request, err := c.prepareRequest(ctx, "GET", "/api/lite/v2/results/"+uuid+"/full", nil)
 	if err != nil {
 		return
@@ -876,7 +935,7 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 			Logger.Warn("cannot close response body", slog.String("error", e.Error()))
 		}
 	}()
-	rawBody, err := io.ReadAll(resp.Body)
+	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return
 	}
@@ -900,7 +959,11 @@ func (c *Client) GetProfileStatus(ctx context.Context) (status ProfileStatus, er
 }
 
 func (c *Client) getProfileStatus(ctx context.Context, do func(req *http.Request) (*http.Response, error)) (status ProfileStatus, err error) {
-	request, err := c.prepareRequest(ctx, "GET", c.getPath("status"), nil)
+	statusPath, err := c.getPath("status")
+	if err != nil {
+		return
+	}
+	request, err := c.prepareRequest(ctx, "GET", statusPath, nil)
 	if err != nil {
 		return
 	}
@@ -917,7 +980,7 @@ func (c *Client) getProfileStatus(ctx context.Context, do func(req *http.Request
 		}
 	}()
 
-	rawBody, err := io.ReadAll(resp.Body)
+	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return
 	}
@@ -965,7 +1028,7 @@ func (c *Client) getAPIVersions(ctx context.Context, do func(*http.Request) (*ht
 		}
 	}()
 
-	rawBody, err := io.ReadAll(resp.Body)
+	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return
 	}
@@ -1014,6 +1077,9 @@ func (c *Client) ExportResult(ctx context.Context, uuid string, options ExportOp
 	if c.syndetect {
 		return nil, ErrNotAvailable
 	}
+	if !reValidUUID.MatchString(uuid) {
+		return nil, ErrInvalidUUID
+	}
 	queries := map[string]string{
 		"format": string(options.Format),
 		"layout": string(options.Layout),
@@ -1035,7 +1101,7 @@ func (c *Client) ExportResult(ctx context.Context, uuid string, options ExportOp
 			Logger.Warn(fmt.Sprintf("failed to close resp body, err: %s", e))
 		}
 	}()
-	data, err = io.ReadAll(resp.Body)
+	data, err = io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return
 	}
