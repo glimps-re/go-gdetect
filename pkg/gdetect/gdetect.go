@@ -531,7 +531,7 @@ func (c *Client) getPath(path string) (string, error) {
 // a ?wait=N query parameter is added to instruct the server to hold the connection
 // open for up to N seconds until the analysis completes.
 func (c *Client) getResultByUUID(ctx context.Context, analysisID string, waitSeconds int) (result Result, err error) {
-	if !reValidUUID.MatchString(analysisID) {
+	if !c.syndetect && !reValidUUID.MatchString(analysisID) {
 		err = ErrInvalidUUID
 		return
 	}

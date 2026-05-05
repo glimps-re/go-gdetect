@@ -41,6 +41,7 @@ const (
 	testUUIDMarkdown   = "ab000001-0000-0000-0000-00000000000e"
 	testUUIDCSV        = "ab000001-0000-0000-0000-00000000000f"
 	testUUIDBadRequest = "ab000001-0000-0000-0000-000000000010"
+	testSyndetectID    = "syndetectid"
 )
 
 const (
@@ -445,8 +446,9 @@ func TestClient_SubmitFile(t *testing.T) {
 
 func TestClient_GetResultByUUID(t *testing.T) {
 	type args struct {
-		ctx  context.Context
-		uuid string
+		ctx       context.Context
+		uuid      string
+		syndetect bool
 	}
 	tests := []struct {
 		name            string
@@ -464,6 +466,16 @@ func TestClient_GetResultByUUID(t *testing.T) {
 			},
 			wantErr:         true,
 			wantSpecificErr: ErrInvalidUUID,
+		},
+		{
+			name: "syndetect id is not an uuid",
+			args: args{
+				ctx:       context.Background(),
+				uuid:      testSyndetectID,
+				syndetect: true,
+			},
+			wantErr:    false,
+			wantResult: Result{UUID: testSyndetectID, ID: testSyndetectID, Done: true},
 		},
 		{
 			name: "VALID",
@@ -550,6 +562,13 @@ func TestClient_GetResultByUUID(t *testing.T) {
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
+					case "/api/v1/results/" + testSyndetectID:
+						rw.WriteHeader(http.StatusOK)
+						_, err := rw.Write([]byte(`{"id":"` + testSyndetectID + `", "status": true, "done": true}`))
+						if err != nil {
+							t.Fatalf("cannot write test response: %s", err)
+						}
+
 					default:
 						t.Errorf("handler.GetResultByUUID() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 					}
@@ -560,6 +579,9 @@ func TestClient_GetResultByUUID(t *testing.T) {
 			client, err := NewClient(s.URL, token, false, nil)
 			if err != nil {
 				return
+			}
+			if tt.args.syndetect {
+				client.SetSyndetect()
 			}
 
 			if tt.timeout != 0 {

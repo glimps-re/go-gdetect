@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.6.3]
+
+### Fixed
+
+* Fix GetResultByUUID for syndetect
+
 ## [v1.6.2]
 
 ### Added
