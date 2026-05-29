@@ -46,6 +46,7 @@ Available Commands:
   search      Search a previous analysis
   status      Get profile status
   submit      Submit a file to gdetect api
+  url         Scan a URL with detect API
   waitfor     Submit a file to gdetect api and wait for results
 
 Flags:
@@ -94,6 +95,15 @@ The `export` command allows you to export analysis results in various formats:
 
 # Available formats: misp, stix, json, pdf, markdown, csv
 # Available layouts: fr, en
+```
+
+#### URL command
+
+The `url` command scans a URL and prints out the resulting verdict
+(unknown, safe, suspicious or malicious). It is only available on the Detect API:
+
+```bash
+./go-gdetect url https://example.com
 ```
 
 ### As a go library
@@ -151,6 +161,13 @@ func main() {
  }
  // Save to file with secure permissions
  os.WriteFile("report.pdf", data, 0o600)
+
+ // Scan a URL and get the verdict synchronously
+ urlResult, err := client.ScanURL(context.Background(), "https://example.com")
+ if err != nil {
+  return
+ }
+ fmt.Print(urlResult.Verdict)
 }
 ```
 

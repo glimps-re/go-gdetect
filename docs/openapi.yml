@@ -1,18 +1,28 @@
-openapi: 3.0.0
+openapi: "3.1.0"
 
 info:
   title: GLIMPS Malware - Detect
   description: This API allows user to submit binary files to be analyzed
   version: '2.6.0'
 
+tags:
+  - name: submit
+  - name: result
+  - name: search
+  - name: status
+  - name: url
+
 paths:
   /submit:
     post:
       summary: Submit a file to be analyzed
-      description: ''
-      operationId: ''
+      description: |
+        Send a file to platform for analyze this.
+        The response content an UUID for view result when is treatment is ending.
       security:
         - ApiAuthKey: []
+      tags:
+        - submit
       parameters:
         - name: bypass-cache
           in: query
@@ -53,7 +63,7 @@ paths:
               required:
                 - file
       responses:
-        200:
+        '200':
           description: file submitted
           content:
             application/json:
@@ -68,13 +78,13 @@ paths:
                     $ref: "#/components/schemas/uuid"
                   error:
                     $ref: "#/components/schemas/error"
-        400:
+        '400':
           $ref: '#/components/responses/BadRequest'
-        401:
+        '401':
           $ref: '#/components/responses/Unauthorized'
-        403:
+        '403':
           $ref: '#/components/responses/Forbidden'
-        429:
+        '429':
           description: user reach her quota
           content:
             application/json:
@@ -82,17 +92,20 @@ paths:
                 $ref: "#/components/schemas/errorResponse"
               examples:
                 quota-exceeded:
-                  description: user exceeded a quota (monthly submission, monthly volume or parallel submissions)
+                  description: user exceeded her daily quota (number of submission in 24h)
                   value:
                     status: false
-                    error: "quota exceeded"
-        500:
+                    error: "quota exceeded, try again in 24h"
+        '500':
           $ref: '#/components/responses/InternalServerError'
   /results:
     get:
       summary: Returns results by date (from -> to) in seconds
+      description: Returns results by date (from -> to) in seconds
       security:
         - ApiAuthKey: []
+      tags:
+        - result
       parameters:
         - name: from
           in: query
@@ -136,28 +149,30 @@ paths:
           in: query
           schema:
             type: array
-            example: "test"
+            items:
+              type: string
           description: filter on user tags
       responses:
-        200:
+        '200':
           description: ''
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/resultsByDate"
-        401:
+        '401':
           $ref: '#/components/responses/Unauthorized'
-        404:
+        '404':
           $ref: '#/components/responses/NotFound'
-        500:
+        '500':
           $ref: '#/components/responses/InternalServerError'
   /results/{UUID}:
     get:
       summary: Retrieve the analysis
-      description: ''
-      operationId: ''
+      description: 'Retrieve analysis with their UUID'
       security:
         - ApiAuthKey: []
+      tags:
+        - result
       parameters:
         - name: UUID
           in: path
@@ -171,38 +186,31 @@ paths:
             type: integer
           description: the maximum number of seconds to wait for the result to be done.
       responses:
-        200:
-          description: ''
+        '200':
+          description: 'Request is correct, return data about result'
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/analysis"
               examples:
-                analysisCompletedMinimal:
-                  $ref: "#/components/examples/analysisCompletedMinimal"
-                analysisInProgress:
-                  $ref: "#/components/examples/analysisInProgress"
-                analysisWithSubFiles:
-                  $ref: "#/components/examples/analysisWithSubFiles"
-                analysisWithSubFilesMalware:
-                  $ref: "#/components/examples/analysisWithSubFilesMalware"
-                analysisWithToken:
-                  $ref: "#/components/examples/analysisWithToken"
-        400:
+                Analysis:
+                  $ref: "#/components/examples/analysis"
+        '400':
           $ref: '#/components/responses/BadRequest'
-        401:
+        '401':
           $ref: '#/components/responses/Unauthorized'
-        404:
+        '404':
           $ref: '#/components/responses/NotFound'
-        500:
+        '500':
           $ref: '#/components/responses/InternalServerError'
   /results/{UUID}/full:
     get:
       summary: Retrieve full analysis
-      description: ''
-      operationId: ''
+      description: Retrieve full analysis
       security:
         - ApiAuthKey: []
+      tags:
+        - result
       parameters:
         - name: UUID
           in: path
@@ -210,31 +218,33 @@ paths:
           schema:
             $ref: "#/components/schemas/uuid"
       responses:
-        200:
+        '200':
           description: ''
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/fullAnalysis"
               examples:
-                analysisCompleted:
-                  $ref: "#/components/examples/fullAnalysisMalware"
-        400:
+                analysis:
+                  $ref: "#/components/examples/fullAnalysis"
+        '400':
           $ref: '#/components/responses/BadRequest'
-        401:
+        '401':
           $ref: '#/components/responses/Unauthorized'
-        404:
+        '404':
           $ref: '#/components/responses/NotFound'
-        500:
+        '500':
           $ref: '#/components/responses/InternalServerError'
   /results/{UUID}/export:
     get:
       security:
         - ApiAuthKey: []
+      tags:
+        - result
       description: |
         Exports a specific analysis result by giving its Uuid. \
         Exports Formats can be Misp, Stix, Json, Pdf, Markdown and Csv. \
-        The submitter must have the export permission on their profile. \
+        Submitter must have the TODO permissions. \
       parameters:
         - name: "UUID"
           in: path
@@ -253,7 +263,7 @@ paths:
           description: "Full defines if export must be full analysis or summarized"
           schema:
             type: boolean
-            enum: ["true", "false"]
+            enum: [true, false]
           required: false
         - name: "layout"
           in: query
@@ -263,7 +273,7 @@ paths:
             enum: [fr, en]
           required: true
       responses:
-        200:
+        '200':
           description: The file is available and is directly returned to the client. The mimetype depends on the returned file
           content:
             application/octet-stream:
@@ -356,42 +366,20 @@ paths:
                     **Analysis completed on**: Wed Jun 15, 2022 14:22:33 UTC
 
                     ...
-
-        400:
-          description: invalid payload
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/errorResponse"
-              examples:
-                "bad request":
-                  value:
-                    status: false
-                    error: "Bad Request"
-                    details:
-                      - field1: "some error"
-                      - field2: "some other error"
-        403:
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/errorResponse"
-              example: |
-                {
-                  "status": false,
-                  "error": "forbidden"
-                }
-
-        404:
+        '400':
+          $ref: "#/components/responses/BadRequest"
+        '403':
+          $ref: "#/components/responses/Forbidden"
+        '404':
           $ref: "#/components/responses/NotFound"
   /search/{sha256}:
     get:
       summary: Search a previous analysis
-      description: ''
-      operationId: ''
+      description: Search a previous analysis
       security:
         - ApiAuthKey: []
+      tags:
+        - search
       parameters:
         - name: sha256
           in: path
@@ -399,30 +387,24 @@ paths:
           schema:
             $ref: "#/components/schemas/sha256"
       responses:
-        200:
+        '200':
           description: ''
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/analysis"
               examples:
-                analysisCompletedMinimal:
-                  $ref: "#/components/examples/analysisCompletedMinimal"
-                analysisInProgress:
-                  $ref: "#/components/examples/analysisInProgress"
-                analysisWithSubFiles:
-                  $ref: "#/components/examples/analysisWithSubFiles"
-                analysisWithSubFilesMalware:
-                  $ref: "#/components/examples/analysisWithSubFilesMalware"
-        400:
+                Analysis Completed Minimal:
+                  $ref: "#/components/examples/analysis"
+        '400':
           $ref: '#/components/responses/BadRequest'
-        401:
+        '401':
           $ref: '#/components/responses/Unauthorized'
-        403:
+        '403':
           $ref: '#/components/responses/Forbidden'
-        404:
+        '404':
           $ref: '#/components/responses/NotFound'
-        500:
+        '500':
           $ref: '#/components/responses/InternalServerError'
   /results/{UUID}/{SHA256}/service/{SERVICE}:
     get:
@@ -430,6 +412,8 @@ paths:
       description: get JSON body result
       security:
         - ApiAuthKey: []
+      tags:
+        - result
       parameters:
         - name: UUID
           in: path
@@ -447,7 +431,7 @@ paths:
           schema:
             $ref: "#/components/schemas/service"
       responses:
-        200:
+        '200':
           description: service result
           content:
             application/json:
@@ -461,15 +445,15 @@ paths:
                     db_version: "8.19.2.26"
                     malware: true
                     malware_name: "TR/Crypt.XPACK.Gen"
-        400:
+        '400':
           $ref: '#/components/responses/BadRequest'
-        401:
+        '401':
           $ref: '#/components/responses/Unauthorized'
-        403:
+        '403':
           $ref: '#/components/responses/Forbidden'
-        404:
+        '404':
           $ref: '#/components/responses/NotFound'
-        500:
+        '500':
           $ref: '#/components/responses/InternalServerError'
   /status:
     get:
@@ -478,8 +462,10 @@ paths:
       description: Get profile status. The status will contains quota state and an estimation of analysis duration.
       security:
         - ApiAuthKey: []
+      tags:
+        - status
       responses:
-        200:
+        '200':
           description: profile status
           content:
             application/json:
@@ -487,13 +473,46 @@ paths:
                 $ref: "#/components/schemas/profileStatus"
               examples:
                 static:
-                  $ref: "#/components/examples/staticProfileStatus"
-                dynamic:
-                  $ref: "#/components/examples/dynamicProfileStatus"
+                  $ref: "#/components/examples/static"
+  /url:
+    post:
+      description: Send an URL and return an verdict
+      security:
+        - ApiAuthKey: []
+      tags:
+        - url
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                  description: "URL to test"
+      responses:
+        '200':
+          description: "URL tested"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/URLTestSchemasResponseOK'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
   responses:
     BadRequest:
-      description: invalid file submitted
+      description: "Bad Request, wrong syntax"
       content:
         application/json:
           schema:
@@ -572,12 +591,12 @@ components:
           schema:
             $ref: "#/components/schemas/errorResponse"
           examples:
-            internalservererror:
+            internalServerError:
               value:
                 status: false
                 error: "internal server error"
     Unauthorized:
-      description: invalid token
+      description: "Unauthorized, authentication is mandatory"
       content:
         application/json:
           schema:
@@ -595,11 +614,6 @@ components:
       description: |
         Authentication token for the lite api
   schemas:
-    authToken:
-      type: string
-      description: |
-        Authentication token for the lite api
-      example: "3559a8d2-c497f9f3-0c4fb9f2-79d627d2-6f0847c5"
     submitStatus:
       type: boolean
       description: |
@@ -666,28 +680,29 @@ components:
               special_status_code:
                 $ref: "#/components/schemas/special_status_code"
             example: 
-              - uuid: "6ed43200-4789-4ab5-ad19-064469c129dd"
-                is_malware: true
-                done: true
-                error: false
-                filename: "test.bin"
-                date: 1675850874780
-                file_size: 12340
-                file_type: "zip"
-                score: 1200
-                malwares: ["eicar"]
-                special_status_code: 103
-              - uuid: "6ed43200-4789-4ab5-ad19-064469c129ee"
-                is_malware: false
-                done: false
-                error: false
-                filename: "test.exe"
-                date: 1675850071234
-                file_size: 1234
-                file_type: "exe"
-                score: 0
-                malwares: []
-                special_status_code: 0
+              items:
+                - uuid: "6ed43200-4789-4ab5-ad19-064469c129dd"
+                  is_malware: true
+                  done: true
+                  error: false
+                  filename: "test.bin"
+                  date: 1675850874780
+                  file_size: 12340
+                  file_type: "zip"
+                  score: 1200
+                  malwares: ["eicar"]
+                  special_status_code: 103
+                - uuid: "6ed43200-4789-4ab5-ad19-064469c129ee"
+                  is_malware: false
+                  done: false
+                  error: false
+                  filename: "test.exe"
+                  date: 1675850071234
+                  file_size: 1234
+                  file_type: "exe"
+                  score: 0
+                  malwares: []
+                  special_status_code: 0
     analysis:
       type: object
       properties:
@@ -737,9 +752,6 @@ components:
           $ref: "#/components/schemas/threats"
         special_status_code:
           $ref: "#/components/schemas/special_status_code"
-        comment:
-          type: string
-          description: optional user-supplied comment attached to the analysis
       required:
         - status
         - UUID
@@ -839,8 +851,12 @@ components:
       type: object
     missing_error_keys:
       type: array
+      items:
+        type: string
     missing_result_keys:
       type: array
+      items:
+        type: string
     params:
       type: object
     results:
@@ -958,23 +974,21 @@ components:
         is_malware:
           $ref: "#/components/schemas/is_malware"
     av_results:
-      description: malware matches returned by probes; requires the av_result right
-      type: array
-      items:
-        type: object
-        properties:
-          av:
-            type: string
-            description: probe name
-            example: "GlimpsCorrelate"
-          result:
-            type: string
-            description: malware name indicated by probe
-            example: win_cybergate_auto
-          score:
-            type: integer
-            description: amount of point added by the probe
-            example: 1000
+      description: malware matches returns by probes, print av_result right required
+      type: object
+      properties:
+        av:
+          type: string
+          description: probe name
+          example: "GlimpsCorrelate"
+        result:
+          type: string
+          description: malware name indicated by probe
+          example: win_cybergate_auto
+        score:
+          type: integer
+          description: amount of point added by the probe
+          example: 1000
     view_token:
       description: token that can be used to view analysis result in expert view
       type: string
@@ -1090,442 +1104,69 @@ components:
         malware_threshold:
           type: integer
           description: Analysis score from which an input file is classified as a malware
+    URLTestSchemasResponseOK:
+      type: object
+      properties:
+        verdict:
+          type: string
+          description: "category of menace: unknown / safe / suspicious / malicious"
+        matches:
+          type: object
   examples:
-    analysisCompletedMinimal:
-      value: |
-        {
-          "status": true,
-          "uuid": "9618ae7e-e284-405d-8998-ff1e12c7ca27",
-          "sha256": "c253396cf740b03629b1a76f071eb3594099eebc130f47ae8fe15ef47679e209",
-          "sha1": "f9a0a612aa694acc24726ed8610981db9798dde0",
-          "md5": "8437115b99341df5becdb03a4d091654",
-          "ssdeep": "384:4fpWcehzJFYKWYGWhdffa3zWzc3fpCLrsjHIX69URc+hmnulY1qHprFKt6zW8zZn:4fkcY/WYf/ffa3axfpWcehzJFYKWYGWv",
-          "is_malware": true,
-          "done": true,
-          "timestamp": 1637835534067,
-          "filetype": "elf",
-          "size": 31976,
-          "special_status_code": 103
-        }
-    analysisInProgress:
-      value: |
-        {
-          "status":true,
-          "uuid":"9e0c5344-b902-4675-b257-2fe9ce088774",
-          "sha256":"024e01b39ec72691f43f9b480656dde0ada5b5d03fc0f000fd06ccdc5eda627e",
-          "sha1":"",
-          "md5":"",
-          "ssdeep":"",
-          "is_malware":false,
-          "score":0,
-          "done":false,
-          "timestamp":1622549930559,
-          "filetype":"exe",
-          "size":69632,
-          "file_count":0,
-          "duration":0
-        }
-    analysisWithSubFiles:
-      value: |
-        {
-          "status":true,
-          "uuid":"e6520192-bc2a-4172-b68f-cc2de1664807",
-          "sha256":"edae201c466883b46294e5216c8d364420c13282abefcfcdea28d59ec0b671b0",
-          "sha1":"130d5c720227ca89695d454397b66c3a402aac49",
-          "md5":"309ef08aa4d778a08151ca3532b8e424",
-          "ssdeep":"24576:645Rt4El7fc/TFJzjJUgrrCq5sNIwQsUGy1q7a9DlI5CTp+kq9slRG:Rjt4El7fc/TFJWstwQsPdSDu5CTpqmG",
-          "is_malware":false,
-          "score":0,
-          "done":true,
-          "timestamp":1622449879758,
-          "filetype":"exe",
-          "size":1294336,
-          "filenames":["test.bin"],
-          "files":[
-            {
-              "sha256":"edae201c466883b46294e5216c8d364420c13282abefcfcdea28d59ec0b671b0",
-              "sha1":"130d5c720227ca89695d454397b66c3a402aac49",
-              "md5":"309ef08aa4d778a08151ca3532b8e424",
-              "ssdeep":"24576:645Rt4El7fc/TFJzjJUgrrCq5sNIwQsUGy1q7a9DlI5CTp+kq9slRG:Rjt4El7fc/TFJWstwQsPdSDu5CTpqmG",
-              "magic":"PE32 executable (GUI) Intel 80386, for MS Windows",
-              "size":1294336,
-              "is_malware":false
-            }
-          ],
-          "sid":"1HLXVrb5dMFrXpgSTGnScd",
-          "file_count":1,
-          "duration":6206,
-          "special_status_code": 103
-        }
-    analysisWithSubFilesMalware:
-      value: |
-        {
-          "status":true,
-          "uuid":"1a6624c6-d2e1-4308-87a0-43856f3103a4",
-          "sha256":"2213f9c41331201f97ee0be46031c5aacb7eea2b2cc4d9a074247390e2d14787",
-          "sha1":"00404dcffa713b573ba7435c5e73302b3e702e4e",
-          "md5":"4cc0ee72e4fc5c2e90fc078ce445e7ec",
-          "ssdeep":"768:TC38CMQ2Is0JQj+zRdZHJE5s6jtBnDshPJSudb5T:TChMSJHRdZHJqtBy3db",
-          "is_malware":true,
-          "score":2000,
-          "done":true,
-          "timestamp":1622194918662,
-          "filetype":"exe",
-          "size":39424,
-          "filenames":["UDS.DangerousObject.Multi.Generic.4cc0ee72e4fc5c2e90fc078ce445e7ec"],
-          "malwares":[
-            "Trojan.Downloader.cGW@a8pVnZm.32729.13424",
-            "win_cybergate_auto","win_cybergate_w0"
-          ],
-          "files":[
-          {
-            "sha256":"2213f9c41331201f97ee0be46031c5aacb7eea2b2cc4d9a074247390e2d14787",
-            "sha1":"00404dcffa713b573ba7435c5e73302b3e702e4e",
-            "md5":"4cc0ee72e4fc5c2e90fc078ce445e7ec",
-            "ssdeep":"768:TC38CMQ2Is0JQj+zRdZHJE5s6jtBnDshPJSudb5T:TChMSJHRdZHJqtBy3db",
-            "magic":"PE32 executable (GUI) Intel 80386, for MS Windows",
-            "av_results":[
-              {
-                "av":"Clamav",
-                "result":"Trojan.Downloader.cGW@a8pVnZm.32729.13424",
-                "score":1000
-              },
-              {
-                "av":"GlimpsCorrelate",
-                "result":"win_cybergate_auto",
-                "score":1000
-              },
-              {
-                "av":"GlimpsCorrelate",
-                "result":"win_cybergate_w0",
-                "score":1000
-              }],
-            "size":39424,
-            "is_malware":true
-          }],
-          "sid":"2z4zfg66Sm3k0Y2KcjgqoK",
-          "file_count":1,
-          "duration":988,
-          "threats":{
-            "2213f9c41331201f97ee0be46031c5aacb7eea2b2cc4d9a074247390e2d14787": {
-              "filenames": ["UDS.DangerousObject.Multi.Generic.4cc0ee72e4fc5c2e90fc078ce445e7ec"],
-              "tags": [
-                {"name": "av.virus_name", "value":"Trojan.Downloader.cGW@a8pVnZm.32729.13424"},
-                {"name": "av.virus_name", "value":"win_cybergate_auto"},
-                {"name": "av.virus_name", "value":"win_cybergate_w0"}
-              ],
-              "score": 2000,
-              "magic": "PE32 executable (GUI) Intel 80386, for MS Windows",
-              "sha256":"2213f9c41331201f97ee0be46031c5aacb7eea2b2cc4d9a074247390e2d14787",
-              "sha1":"00404dcffa713b573ba7435c5e73302b3e702e4e",
-              "md5":"4cc0ee72e4fc5c2e90fc078ce445e7ec",
-              "ssdeep":"768:TC38CMQ2Is0JQj+zRdZHJE5s6jtBnDshPJSudb5T:TChMSJHRdZHJqtBy3db",
-              "file_size": 39424,
-              "mime": "executable/windows"
-            }
-          },
-          "special_status_code": 103
-        }
-    analysisWithToken:
-      value: |
-        {
-          "status":true,
-          "uuid":"1a6624c6-d2e1-4308-87a0-43856f3103a4",
-          "sha256":"2213f9c41331201f97ee0be46031c5aacb7eea2b2cc4d9a074247390e2d14787",
-          "sha1":"00404dcffa713b573ba7435c5e73302b3e702e4e",
-          "md5":"4cc0ee72e4fc5c2e90fc078ce445e7ec",
-          "ssdeep":"768:TC38CMQ2Is0JQj+zRdZHJE5s6jtBnDshPJSudb5T:TChMSJHRdZHJqtBy3db",
-          "is_malware":true,
-          "score":2000,
-          "done":true,
-          "timestamp":1622194918662,
-          "filetype":"exe",
-          "size":39424,
-          "filenames":["UDS.DangerousObject.Multi.Generic.4cc0ee72e4fc5c2e90fc078ce445e7ec"],
-          "malwares":[
-            "Trojan.Downloader.cGW@a8pVnZm.32729.13424",
-            "win_cybergate_auto","win_cybergate_w0"
-          ],
-          "files":[
-          {
-            "sha256":"2213f9c41331201f97ee0be46031c5aacb7eea2b2cc4d9a074247390e2d14787",
-            "sha1":"00404dcffa713b573ba7435c5e73302b3e702e4e",
-            "md5":"4cc0ee72e4fc5c2e90fc078ce445e7ec",
-            "ssdeep":"768:TC38CMQ2Is0JQj+zRdZHJE5s6jtBnDshPJSudb5T:TChMSJHRdZHJqtBy3db",
-            "magic":"PE32 executable (GUI) Intel 80386, for MS Windows",
-            "av_results":[
-              {
-                "av":"Clamav",
-                "result":"Trojan.Downloader.cGW@a8pVnZm.32729.13424",
-                "score":1000
-              },
-              {
-                "av":"GlimpsCorrelate",
-                "result":"win_cybergate_auto",
-                "score":1000
-              },
-              {
-                "av":"GlimpsCorrelate",
-                "result":"win_cybergate_w0",
-                "score":1000
-              }],
-            "size":39424,
-            "is_malware":true
-          }],
-          "sid":"2z4zfg66Sm3k0Y2KcjgqoK",
-          "file_count":1,
-          "duration":988,
-          "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImFwaS10ZXN0dG9rZW4iLCJncm91cHMiOlsidG9rZW5zIl0sInNpZCI6IjdSaWtpYXFZdVNpOUU1cmV3NHFBY2UiLCJleHAiOjE2NDA1MTE2MDgsImlhdCI6MTYzNzkxOTYwOH0.AWa_e8EazpXq-7NHARE1xYGaRrHkF-IGRjw2yE6V8HY",
-          "threats":{
-            "2213f9c41331201f97ee0be46031c5aacb7eea2b2cc4d9a074247390e2d14787": {
-              "filenames": ["UDS.DangerousObject.Multi.Generic.4cc0ee72e4fc5c2e90fc078ce445e7ec"],
-              "tags": [
-                {"name": "av.virus_name", "value":"Trojan.Downloader.cGW@a8pVnZm.32729.13424"},
-                {"name": "av.virus_name", "value":"win_cybergate_auto"},
-                {"name": "av.virus_name", "value":"win_cybergate_w0"}
-              ],
-              "score": 2000,
-              "magic": "PE32 executable (GUI) Intel 80386, for MS Windows",
-              "sha256":"2213f9c41331201f97ee0be46031c5aacb7eea2b2cc4d9a074247390e2d14787",
-              "sha1":"00404dcffa713b573ba7435c5e73302b3e702e4e",
-              "md5":"4cc0ee72e4fc5c2e90fc078ce445e7ec",
-              "ssdeep":"768:TC38CMQ2Is0JQj+zRdZHJE5s6jtBnDshPJSudb5T:TChMSJHRdZHJqtBy3db",
-              "file_size": 39424,
-              "mime": "executable/windows"
-            }
-          },
-          "special_status_code": 103
-        }
-    staticProfileStatus:
-      value: |
-        {
-          "monthly_submission_quota": 100000,
-          "monthly_volume_quota": 0,
-          "parallel_submission_quota": 0,
-          "available_monthly_submissions": 100000,
-          "available_monthly_volume": 0,
-          "available_parallel": 0,
-          "cache": true,
-          "estimated_analysis_duration": 2080,
-          "malware_threshold": 1000
-        }
-    dynamicProfileStatus:
-      value: |
-        {
-          "monthly_submission_quota": 1000,
-          "monthly_volume_quota": 10737418240,
-          "parallel_submission_quota": 5,
-          "available_monthly_submissions": 950,
-          "available_monthly_volume": 9663676416,
-          "available_parallel": 5,
-          "cache": false,
-          "estimated_analysis_duration": 208000,
-          "malware_threshold": 800
-        }
-    fullAnalysisMalware:
-      value: |
-        {
-          "archive_ts": "2024-04-19T13:13:59.966447Z",
-          "classification": "TLP:W",
-          "error_count": 0,
-          "expiry_ts": "2024-05-04T13:13:59.966459Z",
-          "file_count": 2,
-          "file_infos": {
-            "223e7167a4e3613ea5ea5465f96fb149d301ef44115d9795c48857cb958eccb8": {
-              "archive_ts": "2026-04-15T09:11:44.76619Z",
-              "ascii": "PK..3...c..I{X....M.......D...2a82243697e2eec45bedc754adcdc1f6f4",
-              "classification": "TLP:W",
-              "entropy": 7.9985514,
-              "expiry_ts": "2026-04-30T09:11:44.766093Z",
-              "hex": "",
-              "magic": "Zip archive data, at least v5.1 to extract",
-              "md5": "640530dcf41bdb8cff2173b09b6e81da",
-              "mime": "application/zip",
-              "seen": {
-                "count": 17,
-                "first": "2024-03-27T09:09:53.474105Z",
-                "last": "2024-04-04T13:14:00.014399Z"
-              },
-              "sha1": "88fcec4db80c9900910cc1eda1687c41bc597c37",
-              "sha256": "223e7167a4e3613ea5ea5465f96fb149d301ef44115d9795c48857cb958eccb8",
-              "size": 117325,
-              "ssdeep": "3072:8dv8E1+hqsMBWK51qrIewq17JlAmgWmlTbQCWRpNVL:mvN+hqsgv5IrHwaJlAmo8CWRpXL",
-              "type": "archive/zip"
-            },
-            "2a82243697e2eec45bedc754adcdc1f6f41724a40c6d7d96fd41ad144899b6f7": {
-              "archive_ts": "2024-04-19T13:14:01.109003Z",
-              "ascii": "MZ......................@.......................................",
-              "classification": "TLP:W",
-              "entropy": 5.068281,
-              "expiry_ts": "2025-03-29T14:23:36.155443Z",
-              "hex": "",
-              "magic": "PE32 executable (GUI) Intel 80386 Mono/.Net assembly, for MS Windows, 3 sections",
-              "md5": "832eb4dc3ed8ceb9a1735bd0c7acaf1b",
-              "mime": "application/vnd.microsoft.portable-executable",
-              "seen": {
-                "count": 17,
-                "first": "2024-03-27T09:09:54.957854Z",
-                "last": "2024-04-04T13:14:01.146586Z"
-              },
-              "sha1": "b622a406927fbb8f6cd5081bd4455fb831948fca",
-              "sha256": "2a82243697e2eec45bedc754adcdc1f6f41724a40c6d7d96fd41ad144899b6f7",
-              "size": 308224,
-              "ssdeep": "3::",
-              "type": "executable/windows/pe32"
-            }
-          },
-          "file_tree": {
-            "223e7167a4e3613ea5ea5465f96fb149d301ef44115d9795c48857cb958eccb8": {
-              "name": [
-                "real_pain_332.zip"
-              ],
-              "score": 0,
-              "sha256": "223e7167a4e3613ea5ea5465f96fb149d301ef44115d9795c48857cb958eccb8",
-              "size": 117325,
-              "truncated": false,
-              "type": "archive/zip",
-              "children": {
-                "2a82243697e2eec45bedc754adcdc1f6f41724a40c6d7d96fd41ad144899b6f7": {
-                  "name": [
-                    "2a82243697e2eec45bedc754adcdc1f6f41724a40c6d7d96fd41ad144899b6f7.exe"
-                  ],
-                  "score": 0,
-                  "sha256": "2a82243697e2eec45bedc754adcdc1f6f41724a40c6d7d96fd41ad144899b6f7",
-                  "size": 308224,
-                  "truncated": false,
-                  "type": "executable/windows/pe32",
-                  "children": {}
-                }
-              }
-            }
-          },
-          "files": [
-            {
-              "name": "real_pain_332.zip",
-              "sha256": "223e7167a4e3613ea5ea5465f96fb149d301ef44115d9795c48857cb958eccb8",
-              "size": 117325
-            }
-          ],
-          "max_score": 0,
-          "metadata": {
-            "user_groups__": ""
-          },
-          "missing_error_keys": [],
-          "missing_result_keys": [],
-          "params": {
-            "classification": "TLP:W",
-            "deep_scan": false,
-            "description": "Inspection of file: real_pain_332.zip",
-            "generate_alert": false,
-            "groups": [],
-            "services": {
-              "excluded": [],
-              "resubmit": [],
-              "runtime_excluded": [],
-              "selected": [
-                "Extract"
-              ]
-            },
-            "submitter": "",
-            "ttl": 30,
-            "type": ""
-          },
-          "results": {
-            "Extract.v4_2_0": {
-              "archive_ts": "2024-04-19T13:14:01.062411Z",
-              "classification": "TLP:W",
-              "created": "2024-04-04T13:14:01.175861Z",
-              "drop_file": true,
-              "expiry_ts": "2024-05-04T13:14:01.062446Z",
-              "id": "",
-              "response": {
-                "extracted": [
-                  {
-                    "classification": "TLP:W",
-                    "description": "Extracted using extract_zip",
-                    "is_section_image": false,
-                    "name": "2a82243697e2eec45bedc754adcdc1f6f41724a40c6d7d96fd41ad144899b6f7.exe",
-                    "sha256": "2a82243697e2eec45bedc754adcdc1f6f41724a40c6d7d96fd41ad144899b6f7"
-                  }
-                ],
-                "milestones": {
-                  "service_completed": "2024-04-04T13:14:00.938255Z",
-                  "service_started": "2024-04-04T13:14:00.646549Z"
-                },
-                "service_context": null,
-                "service_debug_info": null,
-                "service_name": "Extract",
-                "service_tool_version": null,
-                "service_version": "4.2.0.dev.fix-withsecure_zip_extraction",
-                "supplementary": [
-                  {
-                    "classification": "TLP:W",
-                    "description": "Result Ontology from Extract",
-                    "is_section_image": false,
-                    "name": "extract_223e7167a4e3613ea5ea5465f96fb149d301ef44115d9795c48857cb958eccb8.ontology",
-                    "sha256": "a3c5768a1cb5bca18310bc24621927722a8422baaba979656cf843c058723855"
-                  }
-                ]
-              },
-              "result": {
-                "score": 0,
-                "sections": [
-                  {
-                    "body": [
-                      {
-                        "last_modified_date": "2024-03-27T09:08:22+00:00",
-                        "name": "2a82243697e2eec45bedc754adcdc1f6f41724a40c6d7d96fd41ad144899b6f7.exe"
-                      }
-                    ],
-                    "body_format": "JSON",
-                    "classification": "TLP:W",
-                    "depth": 0,
-                    "heuristic": {
-                      "attack": [],
-                      "heur_id": "EXTRACT.10",
-                      "name": "Extracted from Protected Archive",
-                      "score": 0,
-                      "signature": []
-                    },
-                    "tags": [
-                      {
-                        "short_type": "password",
-                        "type": "info.password",
-                        "value": "infected"
-                      }
-                    ],
-                    "title_text": "Successfully extracted 1 file using password: infected"
-                  }
-                ]
-              },
-              "section_hierachy": null,
-              "sha256": "223e7167a4e3613ea5ea5465f96fb149d301ef44115d9795c48857cb958eccb8"
-            }
-          },
-          "sid": "1c15LZo0vU1GiRGDiy8OCC",
-          "state": "completed",
-          "times": {
-            "completed": "2024-04-04T13:14:01.852268Z",
-            "submitted": "2024-04-04T13:13:59.966457Z"
-          },
-          "verdict": {
-            "malicious": [],
-            "non_malicious": []
-          },
-          "special_status_code": 103
-        }
+    analysis:
+      value:
+        status: true
+        UUID: "9618ae7e-e284-405d-8998-ff1e12c7ca27"
+        sid: "1HLXVrb5dMFrXpgSTGnScd"
+        sha256: "c253396cf740b03629b1a76f071eb3594099eebc130f47ae8fe15ef47679e209"
+        sha1: "f9a0a612aa694acc24726ed8610981db9798dde0"
+        md5: "8437115b99341df5becdb03a4d091654"
+        ssdeep: "384:4fpWcehzJFYKWYGWhdffa3zWzc3fpCLrsjHIX69URc+hmnulY1qHprFKt6zW8zZn:4fkcY/WYf/ffa3axfpWcehzJFYKWYGWv"
+        is_malware: true
+        done: true
+        timestamp: 1637835534067
+        filetype: "elf"
+        size: 31976
+        special_status_code: 103
+        score: 42
+        duration: 42
+        filecount: 24
+    fullAnalysis:
+      value:
+        archive_ts: "2024-04-19T11:54:46.398882Z"
+        classification: TLP:w
+        error_count: 0
+        expiry_ts: "2024-05-04T13:13:59.966459Z"
+        file_count: 1
+        file_infos: 
+          $ref: "#/components/schemas/file_infos"
+        file_tree: 
+          $ref: "#/components/schemas/file_tree"
+        max_score: 0
+        metadata:
+          $ref: "#/components/schemas/metadata"
+        files: 
+          - file:
+            type: object
+        missing_error_keys: ["error_key"]
+        missing_result_keys: ["result_key"]
+        params:
+          $ref: "#/components/schemas/params"
+        results: {}
+        sid: "1c15LZo0vU1GiRGDiy8OCC"
+        state: "completed"
+        times: { "completed": "2024-04-04T13:14:01.852268Z", "submitted": "2024-04-04T13:13:59.966457Z" }
+        verdict: { "malicious": [], "non_malicious": [] }
+        special_status_code: 103
+    static:
+      value:
+          daily_quota: 100000
+          available_daily_quota: 100000
+          cache: true
+          estimated_analysis_duration: 2080
+
 servers:
   - url: http://localhost:8081/api/lite/v2
     description: Local server
-  - url: https://{host}:{port}/{basePath}
-    description: Test server
-    variables:
-      host:
-        default: gmalware.glimps.lan
-        description: Test server
-      port:
-        default: "443"
-        enum:
-          - "443"
-      basePath:
-        default: "api/lite/v2"
+  - url: https://gmd.rd.glimps.lan/api/lite/v2
+    description: Dev server

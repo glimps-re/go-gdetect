@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -2384,6 +2385,161 @@ func TestClient_ExportResult(t *testing.T) {
 			}
 			if !tt.wantErr && !reflect.DeepEqual(gotData, tt.wantData) {
 				t.Errorf("Client.ExportResult() = %v, want %v", string(gotData), string(tt.wantData))
+			}
+		})
+	}
+}
+
+func TestClient_ScanURL(t *testing.T) {
+	type fields struct {
+		setSyndetect bool
+	}
+	type args struct {
+		ctx context.Context
+		url string
+	}
+	tests := []struct {
+		name            string
+		fields          fields
+		args            args
+		wantResult      URLResult
+		wantErr         bool
+		wantSpecificErr error
+		timeout         time.Duration
+	}{
+		{
+			name: "ok malicious with matches",
+			args: args{ctx: context.Background(), url: "http://malicious.example"},
+			wantResult: URLResult{
+				Verdict: URLVerdictMalicious,
+				Matches: map[string]URLMatch{
+					"phishtank": {
+						SubSources: []string{"phishtank.org"},
+						Category:   "phishing",
+						Verdict:    URLVerdictMalicious,
+					},
+				},
+			},
+		},
+		{
+			name:       "ok safe empty matches",
+			args:       args{ctx: context.Background(), url: "http://safe.example"},
+			wantResult: URLResult{Verdict: URLVerdictSafe, Matches: map[string]URLMatch{}},
+		},
+		{
+			name:            "ko syndetect",
+			fields:          fields{setSyndetect: true},
+			args:            args{ctx: context.Background(), url: "http://safe.example"},
+			wantErr:         true,
+			wantSpecificErr: ErrNotAvailable,
+		},
+		{
+			name:    "ko bad request",
+			args:    args{ctx: context.Background(), url: "http://badrequest.example"},
+			wantErr: true,
+		},
+		{
+			name:    "ko forbidden",
+			args:    args{ctx: context.Background(), url: "http://forbidden.example"},
+			wantErr: true,
+		},
+		{
+			name:    "ko not found",
+			args:    args{ctx: context.Background(), url: "http://notfound.example"},
+			wantErr: true,
+		},
+		{
+			name:    "ko bad json",
+			args:    args{ctx: context.Background(), url: "http://badjson.example"},
+			wantErr: true,
+		},
+		{
+			name:    "ko timeout",
+			args:    args{ctx: context.Background(), url: "http://timeout.example"},
+			wantErr: true,
+			timeout: 5 * time.Millisecond,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(
+				http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+					if req.Header.Get("X-Auth-Token") != token {
+						t.Errorf("handler.ScanURL() %v error = unexpected TOKEN: %v", tt.name, req.Header.Get("X-Auth-Token"))
+					}
+					if req.Method != http.MethodPost {
+						t.Errorf("handler.ScanURL() %v error = unexpected METHOD: %v", tt.name, req.Method)
+					}
+					if ct := req.Header.Get("Content-Type"); !strings.Contains(ct, "application/json") {
+						t.Errorf("handler.ScanURL() %v error = unexpected Content-Type: %v", tt.name, ct)
+					}
+
+					var body struct {
+						URL string `json:"url"`
+					}
+					if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+						t.Errorf("handler.ScanURL() %v error = cannot decode body: %v", tt.name, err)
+					}
+					if body.URL != tt.args.url {
+						t.Errorf("handler.ScanURL() %v error = unexpected url in body: %v", tt.name, body.URL)
+					}
+
+					switch tt.args.url {
+					case "http://malicious.example":
+						rw.WriteHeader(http.StatusOK)
+						_, _ = rw.Write([]byte(`{"verdict":"malicious","matches":{"phishtank":{"sub_sources":["phishtank.org"],"category":"phishing","verdict":"malicious"}}}`))
+					case "http://safe.example":
+						rw.WriteHeader(http.StatusOK)
+						_, _ = rw.Write([]byte(`{"verdict":"safe","matches":{}}`))
+					case "http://badrequest.example":
+						rw.WriteHeader(http.StatusBadRequest)
+						_, _ = rw.Write([]byte(`{"status":false,"error":"bad request"}`))
+					case "http://forbidden.example":
+						rw.WriteHeader(http.StatusForbidden)
+						_, _ = rw.Write([]byte(`{"status":false,"error":"forbidden"}`))
+					case "http://notfound.example":
+						rw.WriteHeader(http.StatusNotFound)
+						_, _ = rw.Write([]byte(`{"status":false,"error":"not found"}`))
+					case "http://badjson.example":
+						rw.WriteHeader(http.StatusOK)
+						_, _ = rw.Write([]byte(`{"verdict":`))
+					case "http://timeout.example":
+						time.Sleep(15 * time.Millisecond)
+						rw.WriteHeader(http.StatusOK)
+						_, _ = rw.Write([]byte(`{"verdict":"safe"}`))
+					default:
+						t.Errorf("handler.ScanURL() %v error = unexpected url: %v", tt.name, tt.args.url)
+					}
+				}),
+			)
+			defer s.Close()
+
+			client, err := NewClient(s.URL, token, false, nil)
+			if err != nil {
+				return
+			}
+
+			if tt.fields.setSyndetect {
+				client.SetSyndetect()
+			}
+
+			if tt.timeout != 0 {
+				ctx, cancel := context.WithTimeout(tt.args.ctx, tt.timeout)
+				defer cancel()
+				tt.args.ctx = ctx
+			}
+
+			gotResult, err := client.ScanURL(tt.args.ctx, tt.args.url)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Client.ScanURL() error = %v, wantErr = %t", err, tt.wantErr)
+				return
+			}
+			if tt.wantSpecificErr != nil && !errors.Is(err, tt.wantSpecificErr) {
+				t.Errorf("Client.ScanURL() error = %v, want %v", err, tt.wantSpecificErr)
+				return
+			}
+			if !tt.wantErr && !reflect.DeepEqual(gotResult, tt.wantResult) {
+				t.Errorf("Client.ScanURL() = %v, want %v", gotResult, tt.wantResult)
 			}
 		})
 	}
