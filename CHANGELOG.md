@@ -2,7 +2,13 @@
 
 ## [v1.7.0]
 
-## Added
+### Added
+
+* [cli/pkg] Add ScanURL to scan a URL and get a verdict from the /url endpoint
+
+## [v1.6.6]
+
+### Added
 
 * `ClientConfig.TransportWrapper` to decorate the library-built HTTP transport.
 

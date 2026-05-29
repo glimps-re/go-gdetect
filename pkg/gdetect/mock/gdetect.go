@@ -35,6 +35,7 @@ type MockGDetectSubmitter struct {
 	ExtractTokenViewURLMock     func(result *gdetect.Result) (urlTokenView string, err error)
 	ExtractExpertViewURLMock    func(result *gdetect.Result) (urlExpertView string, err error)
 	GetFullSubmissionByUUIDMock func(ctx context.Context, uuid string) (result any, err error)
+	ScanURLMock                 func(ctx context.Context, urlToScan string) (result gdetect.URLResult, err error)
 	GetProfileStatusMock        func(ctx context.Context) (status gdetect.ProfileStatus, err error)
 	GetAPIVersionMock           func(ctx context.Context) (version string, err error)
 	ExportResultMock            func(ctx context.Context, uuid string, options gdetect.ExportOptions) (data []byte, err error)
@@ -133,6 +134,14 @@ func (m *MockGDetectSubmitter) GetFullSubmissionByUUID(ctx context.Context, uuid
 		return m.GetFullSubmissionByUUIDMock(ctx, uuid)
 	}
 	panic("GetFullSubmissionByUUID not implemented in current test")
+}
+
+// ScanURL delegates to ScanURLMock. Panics if the field is nil.
+func (m *MockGDetectSubmitter) ScanURL(ctx context.Context, urlToScan string) (result gdetect.URLResult, err error) {
+	if m.ScanURLMock != nil {
+		return m.ScanURLMock(ctx, urlToScan)
+	}
+	panic("ScanURL not implemented in current test")
 }
 
 // GetProfileStatus delegates to GetProfileStatusMock. Panics if the field is nil.

@@ -15,6 +15,7 @@
 //	search      Search a previous analysis
 //	status      Get profile status
 //	submit      Submit a file to gdetect api
+//	url         Scan a URL with detect API
 //	waitfor     Submit a file to gdetect api and wait for results
 //
 // Flags:

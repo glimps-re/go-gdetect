@@ -7,6 +7,7 @@
 package gdetect
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -110,6 +111,7 @@ type ExtendedGDetectSubmitter interface {
 	ExtractTokenViewURL(result *Result) (urlTokenView string, err error)
 	ExtractExpertViewURL(result *Result) (urlExpertView string, err error)
 	GetFullSubmissionByUUID(ctx context.Context, uuid string) (result any, err error)
+	ScanURL(ctx context.Context, urlToScan string) (result URLResult, err error)
 }
 
 // ControllerSubmitter provides runtime reconfiguration of the client.
@@ -204,6 +206,38 @@ type Result struct {
 	Token             string            `json:"token,omitempty"`
 	Threats           map[string]Threat `json:"threats,omitempty"`
 	SpecialStatusCode int               `json:"special_status_code"`
+}
+
+// URLVerdict is the menace category returned for a scanned URL.
+type URLVerdict string
+
+const (
+	// URLVerdictUnknown indicates the URL could not be classified.
+	URLVerdictUnknown URLVerdict = "unknown"
+	// URLVerdictSafe indicates the URL is considered safe.
+	URLVerdictSafe URLVerdict = "safe"
+	// URLVerdictSuspicious indicates the URL is considered suspicious.
+	URLVerdictSuspicious URLVerdict = "suspicious"
+	// URLVerdictMalicious indicates the URL is considered malicious.
+	URLVerdictMalicious URLVerdict = "malicious"
+)
+
+// URLMatch describes a single source match found when scanning a URL.
+type URLMatch struct {
+	// SubSources lists the subsources used by the source API (e.g. phishtank.org).
+	SubSources []string `json:"sub_sources"`
+	// Category is the menace category (e.g. phishing, gambling, legal).
+	Category string `json:"category"`
+	// Verdict is the menace category reported by this source.
+	Verdict URLVerdict `json:"verdict"`
+}
+
+// URLResult represents the synchronous verdict returned by the /url endpoint of
+// the Detect API. Matches is keyed by source name.
+type URLResult struct {
+	Verdict URLVerdict          `json:"verdict"`
+	Matches map[string]URLMatch `json:"matches"`
+	Errors  map[string]string   `json:"errors,omitempty"`
 }
 
 // Threat describes a single malicious file found within an analysis result.
@@ -527,6 +561,7 @@ var (
 		"search":  "/api/lite/v2/search/",
 		"submit":  "/api/lite/v2/submit",
 		"status":  "/api/lite/v2/status",
+		"url":     "/api/lite/v2/url",
 	}
 	// SyndetectPaths maps logical path keys to their corresponding SynDetect API URL prefixes.
 	SyndetectPaths = map[string]string{
@@ -1117,6 +1152,61 @@ func (c *Client) GetFullSubmissionByUUID(ctx context.Context, uuid string) (resu
 	if err != nil {
 		return
 	}
+
+	resp, err := c.Do(request)
+	if err != nil {
+		return
+	}
+
+	defer func() {
+		if e := resp.Body.Close(); e != nil {
+			Logger.Warn("cannot close response body", slog.String("error", e.Error()))
+		}
+	}()
+	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+	if err != nil {
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		err = NewHTTPError(resp, string(rawBody))
+		return
+	}
+
+	err = json.Unmarshal(rawBody, &result)
+	if err != nil {
+		err = fmt.Errorf("error unmarshalling response json, %w", err)
+		return
+	}
+
+	return
+}
+
+// ScanURL submits a URL to the /url endpoint of the Detect API and returns the
+// synchronous verdict. Unlike the Submit* methods, this call does not create an
+// asynchronous analysis; the server analyses the URL and returns a URLResult
+// directly. This feature is only available on the Detect API; in SynDetect mode
+// it returns ErrNotAvailable.
+func (c *Client) ScanURL(ctx context.Context, urlToScan string) (result URLResult, err error) {
+	if c.syndetect {
+		err = ErrNotAvailable
+		return
+	}
+	urlPath, err := c.getPath("url")
+	if err != nil {
+		return
+	}
+
+	body, err := json.Marshal(map[string]string{"url": urlToScan})
+	if err != nil {
+		return
+	}
+
+	request, err := c.prepareRequest(ctx, http.MethodPost, urlPath, bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	request.Header.Add("Content-Type", "application/json")
 
 	resp, err := c.Do(request)
 	if err != nil {
