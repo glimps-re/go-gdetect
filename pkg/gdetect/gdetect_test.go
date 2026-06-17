@@ -3,6 +3,7 @@ package gdetect
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -1171,8 +1172,8 @@ func TestClient_WaitForReader(t *testing.T) {
 								}
 							}()
 							if part.FormName() == "file" {
-								if _, e := part.Read(content); err != nil && !errors.Is(e, io.EOF) {
-									t.Fatalf("handler.WaitForReader() error could not read part: %v", err)
+								if _, e := part.Read(content); e != nil && !errors.Is(e, io.EOF) {
+									t.Fatalf("handler.WaitForReader() error could not read part: %v", e)
 								}
 								break
 							}
@@ -1254,6 +1255,54 @@ func TestClient_WaitForReader(t *testing.T) {
 				t.Errorf("Client.WaitForReader() dynamic param = %q, want %q", gotDynamicParam, tt.wantDynamicParam)
 			}
 		})
+	}
+}
+
+// TestClient_WaitForReader_PreGetHashesContent is a regression test for the
+// empty-file SHA256 bug: WaitForReader buffers the reader into a temp file
+// (leaving its offset at EOF), then waitforWithPreGet must seek back to the
+// start before hashing. Without that seek the cache lookup used the SHA256 of
+// an empty file (e3b0c442...b855) instead of the actual content.
+func TestClient_WaitForReader_PreGetHashesContent(t *testing.T) {
+	const content = "regression: hash must cover the real content"
+	wantSHA256 := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
+	const emptySHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+	gotSearchSHA256 := ""
+	s := httptest.NewServer(
+		http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			uri := strings.TrimSpace(req.URL.Path)
+			switch {
+			case strings.HasPrefix(uri, "/api/lite/v2/search/"):
+				gotSearchSHA256 = strings.TrimPrefix(uri, "/api/lite/v2/search/")
+				if _, e := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`)); e != nil {
+					t.Fatalf("could not write response, error: %v", e)
+				}
+			default:
+				t.Errorf("unexpected URL: %v", uri)
+			}
+		}),
+	)
+	defer s.Close()
+
+	client, err := NewClient(s.URL, token, false, nil)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	_, err = client.WaitForReader(t.Context(), strings.NewReader(content), WaitForOptions{
+		Timeout:  5 * time.Second,
+		PullTime: 10 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("WaitForReader() error = %v", err)
+	}
+
+	if gotSearchSHA256 == emptySHA256 {
+		t.Fatalf("cache lookup used empty-file SHA256 %s: content was not hashed (offset not reset)", emptySHA256)
+	}
+	if gotSearchSHA256 != wantSHA256 {
+		t.Errorf("cache lookup SHA256 = %s, want %s", gotSearchSHA256, wantSHA256)
 	}
 }
 
