@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.6.4]
+
+### Fixed
+
+* `WaitForReader` no longer submits the SHA256 of an empty file: `waitforWithPreGet` now seeks to the start of the buffered reader before hashing, so the cache lookup uses the actual content hash.
+
 ## [v1.6.3]
 
 ### Fixed

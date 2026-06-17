@@ -930,6 +930,13 @@ func (c *Client) waitFor(ctx context.Context, r io.Reader, waitOptions WaitForOp
 }
 
 func (c *Client) waitforWithPreGet(ctx context.Context, r io.ReadSeeker, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
+	// Ensure we hash from the beginning of the reader. Callers such as
+	// WaitForReader hand us a temp file whose offset is already at EOF after
+	// buffering, so without this seek io.Copy would read zero bytes and produce
+	// the SHA256 of an empty file.
+	if _, err = r.Seek(0, io.SeekStart); err != nil {
+		return
+	}
 	hash := sha256.New()
 	if _, err = io.Copy(hash, r); err != nil {
 		return
