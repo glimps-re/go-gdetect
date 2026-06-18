@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.6.5]
+
+### Added
+
+* `ClientConfig.TransportWrapper` to decorate the library-built HTTP transport (e.g. for OpenTelemetry `otelhttp`) while keeping the managed `Insecure`/TLS settings.
+
 ## [v1.6.4]
 
 ### Fixed

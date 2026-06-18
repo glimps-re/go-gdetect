@@ -157,6 +157,10 @@ type ClientConfig struct {
 	HTTPClient *http.Client
 	// Insecure disables TLS certificate verification. Only used when HTTPClient is nil.
 	Insecure bool
+	// TransportWrapper wraps the transport the library builds, letting callers
+	// layer instrumentation (e.g. otelhttp) while keeping the managed Insecure/TLS
+	// settings. Ignored when HTTPClient is set.
+	TransportWrapper func(http.RoundTripper) http.RoundTripper
 }
 
 // Client is the representation of a Detect API Client.
@@ -410,18 +414,26 @@ func (c *Client) setFromConfig(config ClientConfig) {
 	c.ExpertURL = config.ExpertURL
 	c.Token = config.Token
 	c.syndetect = config.Syndetect
-	if config.HTTPClient == nil {
-		if config.Insecure {
-			// Create a dedicated transport to avoid mutating http.DefaultTransport.
-			transport := http.DefaultTransport.(*http.Transport).Clone()
-			transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // user-requested insecure mode
-			c.HTTPClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
-		} else {
-			c.HTTPClient = &http.Client{Timeout: DefaultTimeout}
-		}
-	} else {
+	if config.HTTPClient != nil {
 		c.HTTPClient = config.HTTPClient
+		return
 	}
+
+	if config.Insecure || config.TransportWrapper != nil {
+		// Create a dedicated transport to avoid mutating http.DefaultTransport.
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		if config.Insecure {
+			transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // user-requested insecure mode
+		}
+		var rt http.RoundTripper = transport
+		if config.TransportWrapper != nil {
+			rt = config.TransportWrapper(transport)
+		}
+		c.HTTPClient = &http.Client{Transport: rt, Timeout: DefaultTimeout}
+		return
+	}
+
+	c.HTTPClient = &http.Client{Timeout: DefaultTimeout}
 }
 
 // Do executes an HTTP request using the client's underlying HTTP client.
