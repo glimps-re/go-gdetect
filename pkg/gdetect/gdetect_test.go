@@ -2527,6 +2527,85 @@ func Test_Client_setFromConfig(t *testing.T) {
 	}
 }
 
+type rtFunc func(*http.Request) (*http.Response, error)
+
+func (f rtFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestClient_TransportWrapper(t *testing.T) {
+	t.Run("wrapper decorates transport and composes with insecure", func(t *testing.T) {
+		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer srv.Close()
+
+		var called bool
+		var capturedBase http.RoundTripper
+		client, err := NewClientFromConfig(ClientConfig{
+			Endpoint: srv.URL,
+			Token:    token,
+			Insecure: true,
+			TransportWrapper: func(base http.RoundTripper) http.RoundTripper {
+				capturedBase = base
+				return rtFunc(func(r *http.Request) (*http.Response, error) {
+					called = true
+					return base.RoundTrip(r)
+				})
+			},
+		})
+		if err != nil {
+			t.Fatalf("NewClientFromConfig() error = %v", err)
+		}
+
+		// Insecure must still be honoured on the base transport the wrapper receives.
+		tr, ok := capturedBase.(*http.Transport)
+		if !ok {
+			t.Fatalf("base transport type = %T, want *http.Transport", capturedBase)
+		}
+		if tr.TLSClientConfig == nil || !tr.TLSClientConfig.InsecureSkipVerify {
+			t.Error("Insecure not applied to the base transport built under TransportWrapper")
+		}
+
+		// A real request must flow through the wrapper and reach the TLS server.
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("client.Do() error = %v", err)
+		}
+		if e := resp.Body.Close(); e != nil {
+			t.Fatalf("close body: %v", e)
+		}
+		if !called {
+			t.Error("wrapper RoundTripper was not invoked")
+		}
+	})
+
+	t.Run("wrapper ignored when HTTPClient set", func(t *testing.T) {
+		custom := &http.Client{}
+		wrapped := false
+		client, err := NewClientFromConfig(ClientConfig{
+			Endpoint:   "http://example.com",
+			Token:      token,
+			HTTPClient: custom,
+			TransportWrapper: func(base http.RoundTripper) http.RoundTripper {
+				wrapped = true
+				return base
+			},
+		})
+		if err != nil {
+			t.Fatalf("NewClientFromConfig() error = %v", err)
+		}
+		if client.HTTPClient != custom {
+			t.Error("provided HTTPClient was not used verbatim")
+		}
+		if wrapped {
+			t.Error("TransportWrapper must be ignored when HTTPClient is set")
+		}
+	})
+}
+
 func TestFeatureNotAvailableError(t *testing.T) {
 	e := FeatureNotAvailableError{Version: "2.5.0"}
 	want := "feature not available, API version: 2.5.0"

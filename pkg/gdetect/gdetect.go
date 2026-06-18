@@ -161,6 +161,10 @@ type ClientConfig struct {
 	// per-host and the global MaxIdleConns). Only used when HTTPClient is nil.
 	// If empty, net/http's DefaultMaxIdleConnsPerHost applies.
 	MaxIdleConnsPerHost int
+	// TransportWrapper wraps the transport the library builds, letting callers
+	// layer instrumentation (e.g. otelhttp) while keeping the managed Insecure/TLS
+	// settings. Ignored when HTTPClient is set.
+	TransportWrapper func(http.RoundTripper) http.RoundTripper
 }
 
 // Client is the representation of a Detect API Client.
@@ -428,7 +432,11 @@ func (c *Client) setFromConfig(config ClientConfig) {
 		transport.MaxIdleConnsPerHost = config.MaxIdleConnsPerHost
 		transport.MaxIdleConns = config.MaxIdleConnsPerHost
 	}
-	c.HTTPClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
+	var rt http.RoundTripper = transport
+	if config.TransportWrapper != nil {
+		rt = config.TransportWrapper(transport)
+	}
+	c.HTTPClient = &http.Client{Transport: rt, Timeout: DefaultTimeout}
 }
 
 // Do executes an HTTP request using the client's underlying HTTP client.
