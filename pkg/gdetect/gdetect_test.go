@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -2438,6 +2439,89 @@ func TestNewClientFromConfig(t *testing.T) {
 			}
 			if !tt.wantErr && client == nil {
 				t.Error("NewClientFromConfig() returned nil client")
+			}
+		})
+	}
+}
+
+func Test_Client_setFromConfig(t *testing.T) {
+	type args struct {
+		MaxIdleConnsPerHost int
+		Insecure            bool
+		HTTPClient          *http.Client
+	}
+	tests := []struct {
+		name                    string
+		args                    args
+		wantMaxIdleConnsPerHost int
+		wantMaxIdleConns        int
+		wantInsecure            bool
+	}{
+		{
+			name:                    "ok default idle pool",
+			args:                    args{},
+			wantMaxIdleConnsPerHost: 0, // transport keeps zero, net/http applies DefaultMaxIdleConnsPerHost at runtime
+			wantMaxIdleConns:        100,
+		},
+		{
+			name:                    "ok sized idle pool",
+			args:                    args{MaxIdleConnsPerHost: 2000},
+			wantMaxIdleConnsPerHost: 2000,
+			wantMaxIdleConns:        2000,
+		},
+		{
+			name:                    "ok insecure",
+			args:                    args{Insecure: true},
+			wantMaxIdleConnsPerHost: 0,
+			wantMaxIdleConns:        100,
+			wantInsecure:            true,
+		},
+		{
+			name:                    "ok insecure with sized idle pool",
+			args:                    args{MaxIdleConnsPerHost: 500, Insecure: true},
+			wantMaxIdleConnsPerHost: 500,
+			wantMaxIdleConns:        500,
+			wantInsecure:            true,
+		},
+		{
+			name:         "ok custom client ignores idle pool and insecure",
+			args:         args{MaxIdleConnsPerHost: 2000, Insecure: true, HTTPClient: &http.Client{}},
+			wantInsecure: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Client{lock: &sync.RWMutex{}}
+			config := ClientConfig{
+				Endpoint:            "http://example.com",
+				Token:               token,
+				Insecure:            tt.args.Insecure,
+				MaxIdleConnsPerHost: tt.args.MaxIdleConnsPerHost,
+				HTTPClient:          tt.args.HTTPClient,
+			}
+			c.setFromConfig(config)
+
+			if tt.args.HTTPClient != nil {
+				if c.HTTPClient != tt.args.HTTPClient {
+					t.Errorf("setFromConfig() did not use provided HTTPClient")
+				}
+				return
+			}
+
+			transport, ok := c.HTTPClient.Transport.(*http.Transport)
+			if !ok {
+				t.Fatalf("setFromConfig() transport is not *http.Transport, got %T", c.HTTPClient.Transport)
+			}
+			if transport.MaxIdleConnsPerHost != tt.wantMaxIdleConnsPerHost {
+				t.Errorf("setFromConfig() MaxIdleConnsPerHost = %d, want %d", transport.MaxIdleConnsPerHost, tt.wantMaxIdleConnsPerHost)
+			}
+			if transport.MaxIdleConns != tt.wantMaxIdleConns {
+				t.Errorf("setFromConfig() MaxIdleConns = %d, want %d", transport.MaxIdleConns, tt.wantMaxIdleConns)
+			}
+			gotInsecure := transport.TLSClientConfig != nil && transport.TLSClientConfig.InsecureSkipVerify
+			if gotInsecure != tt.wantInsecure {
+				t.Errorf("setFromConfig() InsecureSkipVerify = %v, want %v", gotInsecure, tt.wantInsecure)
 			}
 		})
 	}

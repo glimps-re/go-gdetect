@@ -157,6 +157,10 @@ type ClientConfig struct {
 	HTTPClient *http.Client
 	// Insecure disables TLS certificate verification. Only used when HTTPClient is nil.
 	Insecure bool
+	// MaxIdleConnsPerHost, when > 0, sizes the idle connection pool (both the
+	// per-host and the global MaxIdleConns). Only used when HTTPClient is nil.
+	// If empty, net/http's DefaultMaxIdleConnsPerHost applies.
+	MaxIdleConnsPerHost int
 }
 
 // Client is the representation of a Detect API Client.
@@ -410,18 +414,21 @@ func (c *Client) setFromConfig(config ClientConfig) {
 	c.ExpertURL = config.ExpertURL
 	c.Token = config.Token
 	c.syndetect = config.Syndetect
-	if config.HTTPClient == nil {
-		if config.Insecure {
-			// Create a dedicated transport to avoid mutating http.DefaultTransport.
-			transport := http.DefaultTransport.(*http.Transport).Clone()
-			transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // user-requested insecure mode
-			c.HTTPClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
-		} else {
-			c.HTTPClient = &http.Client{Timeout: DefaultTimeout}
-		}
-	} else {
+	if config.HTTPClient != nil {
 		c.HTTPClient = config.HTTPClient
+		return
 	}
+
+	// Create a dedicated transport to avoid mutating http.DefaultTransport.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if config.Insecure {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // user-requested insecure mode
+	}
+	if config.MaxIdleConnsPerHost > 0 {
+		transport.MaxIdleConnsPerHost = config.MaxIdleConnsPerHost
+		transport.MaxIdleConns = config.MaxIdleConnsPerHost
+	}
+	c.HTTPClient = &http.Client{Transport: transport, Timeout: DefaultTimeout}
 }
 
 // Do executes an HTTP request using the client's underlying HTTP client.
