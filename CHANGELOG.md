@@ -6,6 +6,10 @@
 
 * http client: idle pool is now configurable.
 
+### Fixed
+
+* errors: returned errors are more clear about which step failed.
+
 ## [v1.6.4]
 
 ### Fixed

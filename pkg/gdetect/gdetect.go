@@ -853,6 +853,7 @@ func addFormField(w *multipart.Writer, field string, value string) (err error) {
 func (c *Client) WaitForFile(ctx context.Context, filePath string, waitOptions WaitForOptions) (result Result, err error) {
 	file, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
+		err = fmt.Errorf("error opening input file: %w", err)
 		return
 	}
 	defer func() {
@@ -880,6 +881,7 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 		func(ctx context.Context, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
 			tmpFile, err := os.CreateTemp(os.TempDir(), "gdetect-tmp-*")
 			if err != nil {
+				err = fmt.Errorf("error creating temp file: %w", err)
 				return
 			}
 
@@ -887,6 +889,7 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 			if err = tmpFile.Chmod(0o600); err != nil {
 				_ = tmpFile.Close()
 				_ = os.Remove(tmpFile.Name())
+				err = fmt.Errorf("error setting temp file permissions: %w", err)
 				return
 			}
 
@@ -900,6 +903,7 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 			}()
 
 			if _, err = io.Copy(tmpFile, r); err != nil {
+				err = fmt.Errorf("error copying input to temp file: %w", err)
 				return
 			}
 			return c.waitforWithPreGet(ctx, tmpFile, pullTime, submitOptions)
@@ -924,11 +928,12 @@ func (c *Client) waitFor(ctx context.Context, r io.Reader, waitOptions WaitForOp
 		// Submit file
 		uuid, submitErr := c.SubmitReader(ctx, r, submitOptions)
 		if submitErr != nil {
-			err = submitErr
+			err = fmt.Errorf("error submitting file: %w", submitErr)
 			return
 		}
 		result, err = c.waitForUUID(ctx, uuid, waitOptions.PullTime)
 		if err != nil {
+			err = fmt.Errorf("error waiting for result: %w", err)
 			return
 		}
 		return
@@ -942,10 +947,12 @@ func (c *Client) waitforWithPreGet(ctx context.Context, r io.ReadSeeker, pullTim
 	// buffering, so without this seek io.Copy would read zero bytes and produce
 	// the SHA256 of an empty file.
 	if _, err = r.Seek(0, io.SeekStart); err != nil {
+		err = fmt.Errorf("error seeking input: %w", err)
 		return
 	}
 	hash := sha256.New()
 	if _, err = io.Copy(hash, r); err != nil {
+		err = fmt.Errorf("error hashing input: %w", err)
 		return
 	}
 	analysisID := ""
@@ -960,9 +967,11 @@ func (c *Client) waitforWithPreGet(ctx context.Context, r io.ReadSeeker, pullTim
 		}
 		analysisID, err = c.SubmitReader(ctx, r, submitOptions)
 		if err != nil {
+			err = fmt.Errorf("error submitting file: %w", err)
 			return
 		}
 	case err != nil:
+		err = fmt.Errorf("error getting result from cache: %w", err)
 		return
 	case result.Done:
 		return
@@ -975,6 +984,7 @@ func (c *Client) waitforWithPreGet(ctx context.Context, r io.ReadSeeker, pullTim
 	}
 	result, err = c.waitForUUID(ctx, analysisID, pullTime)
 	if err != nil {
+		err = fmt.Errorf("error waiting for result: %w", err)
 		return
 	}
 	return
