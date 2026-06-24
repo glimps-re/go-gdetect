@@ -340,7 +340,7 @@ func TestClient_SubmitFile(t *testing.T) {
 							t.Fatalf("cannot write test response: %s", err)
 						}
 					case "file params":
-						if err := req.ParseMultipartForm(4096); err != nil {
+						if err := req.ParseMultipartForm(4096); err != nil { //nolint:gosec // test handler, input controlled by the test
 							return
 						}
 						switch {
@@ -392,7 +392,7 @@ func TestClient_SubmitFile(t *testing.T) {
 							t.Errorf("handler.SubmitFile() %v: expected dynamic=true query param, got %q", tt.name, req.URL.Query().Get("dynamic"))
 						}
 						// Verify all other form fields are present
-						if err := req.ParseMultipartForm(4096); err != nil {
+						if err := req.ParseMultipartForm(4096); err != nil { //nolint:gosec // test handler, input controlled by the test
 							t.Fatalf("cannot parse multipart form: %s", err)
 						}
 						switch {
@@ -915,7 +915,7 @@ func TestClient_WaitForFile(t *testing.T) {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
 						req.Body = http.MaxBytesReader(rw, req.Body, 10*1024*1024)
-						if err := req.ParseMultipartForm(4096); err != nil {
+						if err := req.ParseMultipartForm(4096); err != nil { //nolint:gosec // test handler, input controlled by the test
 							http.NotFoundHandler().ServeHTTP(rw, req)
 							return
 						}
