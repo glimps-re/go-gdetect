@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.6.5]
+
+### Added
+
+* http client: idle pool is now configurable.
+
 ## [v1.6.4]
 
 ### Fixed
