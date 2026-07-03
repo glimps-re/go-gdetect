@@ -329,16 +329,24 @@ type ExportOptions struct {
 
 // ProfileStatus contains information about profile status
 type ProfileStatus struct {
-	// DailyQuota is the amount of analyses allowed in 24h
-	DailyQuota int `json:"daily_quota"`
-	// AvailableDailyQuota is the amount of analyses currently available
-	AvailableDailyQuota int `json:"available_daily_quota"`
+	// MonthlySubmissionQuota is the amount of submissions allowed in a month (0 means unlimited)
+	MonthlySubmissionQuota int `json:"monthly_submission_quota"`
+	// MonthlyVolumeQuota is the volume of data in bytes allowed in a month (0 means unlimited)
+	MonthlyVolumeQuota int64 `json:"monthly_volume_quota"`
+	// ParallelSubmissionQuota is the amount of concurrent submissions allowed (0 means unlimited)
+	ParallelSubmissionQuota int `json:"parallel_submission_quota"`
+	// AvailableMonthlySubmissions is the amount of submissions currently available for the month
+	AvailableMonthlySubmissions int `json:"available_monthly_submissions"`
+	// AvailableMonthlyVolume is the volume of data in bytes currently available for the month
+	AvailableMonthlyVolume int64 `json:"available_monthly_volume"`
+	// AvailableParallel is the amount of concurrent submissions currently available
+	AvailableParallel int `json:"available_parallel"`
 	// Cache is true if the profile is configured to use detect SHA256 cache
 	Cache bool `json:"cache"`
 	// EstimatedAnalysisDuration is an estimated duration for the next analysis in milliseconds
 	// It's an optimistic estimation based on the average analysis time and the analysis queue
 	EstimatedAnalysisDuration int `json:"estimated_analysis_duration"`
-	// Malware threshold is the threshold at which a file is considered malicious
+	// MalwareThreshold is the threshold at which a file is considered malicious
 	MalwareThreshold int `json:"malware_threshold"`
 }
 

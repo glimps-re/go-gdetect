@@ -82,10 +82,10 @@ paths:
                 $ref: "#/components/schemas/errorResponse"
               examples:
                 quota-exceeded:
-                  description: user exceeded her daily quota (number of submission in 24h)
+                  description: user exceeded a quota (monthly submission, monthly volume or parallel submissions)
                   value:
                     status: false
-                    error: "quota exceeded, try again in 24h"
+                    error: "quota exceeded"
         500:
           $ref: '#/components/responses/InternalServerError'
   /results:
@@ -1047,17 +1047,38 @@ components:
       type: object
       description: status of a profile
       properties:
-        daily_quota:
+        monthly_submission_quota:
           type: integer
           description: |
-            Maximum number of submissions allowed in a 24-hour period.
+            Maximum number of submissions allowed in a month.
             0 => unlimited.
-        available_daily_quota:
+        monthly_volume_quota:
+          type: integer
+          format: int64
+          description: |
+            Maximum volume of data in bytes allowed in a month.
+            0 => unlimited.
+        parallel_submission_quota:
           type: integer
           description: |
-            number of submission still available.
-            0 => unlimited
-            available_daily_quota is computed on the last 24h, so it could increase and decrease anytime.
+            Maximum number of concurrent submissions allowed.
+            0 => unlimited.
+        available_monthly_submissions:
+          type: integer
+          description: |
+            number of submissions still available for the month.
+            0 => unlimited.
+        available_monthly_volume:
+          type: integer
+          format: int64
+          description: |
+            volume of data in bytes still available for the month.
+            0 => unlimited.
+        available_parallel:
+          type: integer
+          description: |
+            number of concurrent submissions still available.
+            0 => unlimited.
         cache:
           type: boolean
           description: true if detect (SHA256 based) cache is activated for the profile.
@@ -1278,8 +1299,12 @@ components:
     staticProfileStatus:
       value: |
         {
-          "daily_quota": 100000,
-          "available_daily_quota": 100000,
+          "monthly_submission_quota": 100000,
+          "monthly_volume_quota": 0,
+          "parallel_submission_quota": 0,
+          "available_monthly_submissions": 100000,
+          "available_monthly_volume": 0,
+          "available_parallel": 0,
           "cache": true,
           "estimated_analysis_duration": 2080,
           "malware_threshold": 1000
@@ -1287,8 +1312,12 @@ components:
     dynamicProfileStatus:
       value: |
         {
-          "daily_quota": 1000,
-          "available_daily_quota": 950,
+          "monthly_submission_quota": 1000,
+          "monthly_volume_quota": 10737418240,
+          "parallel_submission_quota": 5,
+          "available_monthly_submissions": 950,
+          "available_monthly_volume": 9663676416,
+          "available_parallel": 5,
           "cache": false,
           "estimated_analysis_duration": 208000,
           "malware_threshold": 800

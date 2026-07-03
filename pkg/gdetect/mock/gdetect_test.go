@@ -436,7 +436,7 @@ func TestGetFullSubmissionByUUID(t *testing.T) {
 // TestGetProfileStatus tests the GetProfileStatus mock method
 func TestGetProfileStatus(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
-		expectedStatus := gdetect.ProfileStatus{DailyQuota: 1000, AvailableDailyQuota: 500}
+		expectedStatus := gdetect.ProfileStatus{MonthlySubmissionQuota: 1000, AvailableMonthlySubmissions: 500}
 		mock := &MockGDetectSubmitter{
 			GetProfileStatusMock: func(ctx context.Context) (gdetect.ProfileStatus, error) {
 				return expectedStatus, nil
@@ -447,11 +447,11 @@ func TestGetProfileStatus(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
-		if status.DailyQuota != 1000 {
-			t.Errorf("Expected daily quota 1000, got %d", status.DailyQuota)
+		if status.MonthlySubmissionQuota != 1000 {
+			t.Errorf("Expected monthly submission quota 1000, got %d", status.MonthlySubmissionQuota)
 		}
-		if status.AvailableDailyQuota != 500 {
-			t.Errorf("Expected available quota 500, got %d", status.AvailableDailyQuota)
+		if status.AvailableMonthlySubmissions != 500 {
+			t.Errorf("Expected available monthly submissions 500, got %d", status.AvailableMonthlySubmissions)
 		}
 	})
 
