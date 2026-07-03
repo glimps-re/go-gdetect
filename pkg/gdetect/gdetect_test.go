@@ -1650,11 +1650,11 @@ func TestClient_GetProfileStatus(t *testing.T) {
 			},
 			wantErr: false,
 			wantResult: ProfileStatus{
-				MalwareThreshold:          1000,
-				DailyQuota:                1000,
-				AvailableDailyQuota:       997,
-				Cache:                     true,
-				EstimatedAnalysisDuration: 202,
+				MalwareThreshold:            1000,
+				MonthlySubmissionQuota:      1000,
+				AvailableMonthlySubmissions: 997,
+				Cache:                       true,
+				EstimatedAnalysisDuration:   202,
 			},
 		},
 		{
@@ -1664,11 +1664,11 @@ func TestClient_GetProfileStatus(t *testing.T) {
 			},
 			wantErr: false,
 			wantResult: ProfileStatus{
-				MalwareThreshold:          1000,
-				DailyQuota:                1000,
-				AvailableDailyQuota:       997,
-				Cache:                     true,
-				EstimatedAnalysisDuration: 202,
+				MalwareThreshold:            1000,
+				MonthlySubmissionQuota:      1000,
+				AvailableMonthlySubmissions: 997,
+				Cache:                       true,
+				EstimatedAnalysisDuration:   202,
 			},
 		},
 		{
@@ -1735,13 +1735,13 @@ func TestClient_GetProfileStatus(t *testing.T) {
 					case tt.fields.setTimeout:
 						time.Sleep(15 * time.Millisecond)
 						rw.WriteHeader(http.StatusOK)
-						_, err := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
+						_, err := rw.Write([]byte(`{"monthly_submission_quota":1000,"available_monthly_submissions":997,"cache":true,"estimated_analysis_duration":202}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
 					case tt.fields.setBadStatus:
 						rw.WriteHeader(http.StatusTeapot)
-						_, err := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
+						_, err := rw.Write([]byte(`{"monthly_submission_quota":1000,"available_monthly_submissions":997,"cache":true,"estimated_analysis_duration":202}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
@@ -1766,7 +1766,7 @@ func TestClient_GetProfileStatus(t *testing.T) {
 						}
 					default:
 						rw.WriteHeader(http.StatusOK)
-						_, err := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`))
+						_, err := rw.Write([]byte(`{"monthly_submission_quota":1000,"available_monthly_submissions":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
@@ -1872,13 +1872,13 @@ func TestClient_GetAPIVersion(t *testing.T) {
 					case tt.args.setTimeout:
 						time.Sleep(15 * time.Millisecond)
 						rw.WriteHeader(http.StatusOK)
-						_, err := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
+						_, err := rw.Write([]byte(`{"monthly_submission_quota":1000,"available_monthly_submissions":997,"cache":true,"estimated_analysis_duration":202}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
 					case tt.args.setBadStatus:
 						rw.WriteHeader(http.StatusTeapot)
-						_, err := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202}`))
+						_, err := rw.Write([]byte(`{"monthly_submission_quota":1000,"available_monthly_submissions":997,"cache":true,"estimated_analysis_duration":202}`))
 						if err != nil {
 							t.Fatalf("cannot write test response: %s", err)
 						}
@@ -2060,7 +2060,7 @@ func TestClient_Reconfigure(t *testing.T) {
 
 					default:
 						rw.WriteHeader(http.StatusOK)
-						_, err := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`))
+						_, err := rw.Write([]byte(`{"monthly_submission_quota":1000,"available_monthly_submissions":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`))
 						if err != nil {
 							t.Fatalf("cannot write test response : %s", err)
 						}

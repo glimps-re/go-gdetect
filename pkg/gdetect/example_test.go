@@ -126,11 +126,11 @@ func ExampleClient_SubmitFile() {
 func ExampleClient_GetProfileStatus() {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		payload := gdetect.ProfileStatus{
-			DailyQuota:                100,
-			AvailableDailyQuota:       87,
-			Cache:                     true,
-			EstimatedAnalysisDuration: 2000,
-			MalwareThreshold:          1000,
+			MonthlySubmissionQuota:      100,
+			AvailableMonthlySubmissions: 87,
+			Cache:                       true,
+			EstimatedAnalysisDuration:   2000,
+			MalwareThreshold:            1000,
 		}
 		_ = json.NewEncoder(w).Encode(payload)
 	}))
@@ -148,7 +148,7 @@ func ExampleClient_GetProfileStatus() {
 		return
 	}
 	fmt.Printf("quota=%d available=%d threshold=%d\n",
-		status.DailyQuota, status.AvailableDailyQuota, status.MalwareThreshold)
+		status.MonthlySubmissionQuota, status.AvailableMonthlySubmissions, status.MalwareThreshold)
 	// Output: quota=100 available=87 threshold=1000
 }
 

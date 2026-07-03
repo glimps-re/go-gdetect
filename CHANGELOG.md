@@ -4,7 +4,11 @@
 
 ## Added
 
-* `ClientConfig.TransportWrapper` to decorate the library-built HTTP transport (e.g. for OpenTelemetry `otelhttp`) while keeping the managed `Insecure`/TLS settings.
+* `ClientConfig.TransportWrapper` to decorate the library-built HTTP transport.
+
+### Changed
+
+* /status change in gmapi v3.54.0 daily quota is replaced with monthly quota and parallel quota.
 
 ## [v1.6.5]
 

@@ -226,7 +226,7 @@ func TestExecute(t *testing.T) {
 					"--token", token,
 				},
 			},
-			wantOut: `{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`,
+			wantOut: `{"monthly_submission_quota":1000,"monthly_volume_quota":0,"parallel_submission_quota":0,"available_monthly_submissions":997,"available_monthly_volume":0,"available_parallel":0,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`,
 			wantErr: false,
 		},
 	}
@@ -301,7 +301,7 @@ func TestExecute(t *testing.T) {
 					}
 				case "/api/lite/v2/status":
 					rw.WriteHeader(http.StatusOK)
-					_, err := rw.Write([]byte(`{"daily_quota":1000,"available_daily_quota":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`))
+					_, err := rw.Write([]byte(`{"monthly_submission_quota":1000,"available_monthly_submissions":997,"cache":true,"estimated_analysis_duration":202,"malware_threshold":1000}`))
 					if err != nil {
 						t.Fatalf("cannot write test response: %s", err)
 					}
