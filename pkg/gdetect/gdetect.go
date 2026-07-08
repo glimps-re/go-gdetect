@@ -165,6 +165,9 @@ type ClientConfig struct {
 	// layer instrumentation (e.g. otelhttp) while keeping the managed Insecure/TLS
 	// settings. Ignored when HTTPClient is set.
 	TransportWrapper func(http.RoundTripper) http.RoundTripper
+	// TempFilePoolSize is the number of temp files kept idle for reuse by
+	// WaitForReader. A value of 0 selects a default.
+	TempFilePoolSize int
 }
 
 // Client is the representation of a Detect API Client.
@@ -177,6 +180,7 @@ type Client struct {
 	syndetect    bool
 	tempPool     *tempFilePool
 	tempPoolOnce sync.Once
+	tempPoolSize int
 }
 
 // Result represent typical json result from Detect API operations like get or
@@ -428,6 +432,7 @@ func (c *Client) setFromConfig(config ClientConfig) {
 	c.ExpertURL = config.ExpertURL
 	c.Token = config.Token
 	c.syndetect = config.Syndetect
+	c.tempPoolSize = config.TempFilePoolSize
 	if config.HTTPClient != nil {
 		c.HTTPClient = config.HTTPClient
 		return
@@ -869,7 +874,7 @@ func addFormField(w *multipart.Writer, field string, value string) (err error) {
 // tempFiles returns the client's temp-file pool, creating it on first use.
 func (c *Client) tempFiles() *tempFilePool {
 	c.tempPoolOnce.Do(func() {
-		c.tempPool = newTempFilePool(os.TempDir(), defaultTempPoolSize)
+		c.tempPool = newTempFilePool(os.TempDir(), c.tempPoolSize)
 	})
 	return c.tempPool
 }
