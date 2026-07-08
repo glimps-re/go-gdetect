@@ -1,6 +1,12 @@
 # Changelog
 
-## [v1.7.0]
+## [v1.6.7]
+
+### Fixed
+
+* `WaitForReader` hashes while buffering to the temp file and reuses that hash for the preget cache lookup, removing the second full read pass over the temp file per request.
+
+## [v1.6.6]
 
 ## Added
 

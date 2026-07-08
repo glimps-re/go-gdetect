@@ -7,6 +7,8 @@ package gdetectmock
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 
 	"github.com/glimps-re/go-gdetect/pkg/gdetect"
 )
@@ -95,10 +97,25 @@ func (m *MockGDetectSubmitter) SubmitReader(ctx context.Context, r io.Reader, op
 	panic("SubmitReader not implemented in current test")
 }
 
-// WaitForFile delegates to WaitForFileMock. Panics if the field is nil.
-func (m *MockGDetectSubmitter) WaitForFile(ctx context.Context, filepath string, options gdetect.WaitForOptions) (result gdetect.Result, err error) {
+// WaitForFile delegates to WaitForFileMock. When that field is nil it falls back
+// to WaitForReaderMock over the file's content, since both submit the same bytes;
+// this lets tests that configure only the reader path also cover WaitForFile
+// callers. Panics only when neither mock is set.
+func (m *MockGDetectSubmitter) WaitForFile(ctx context.Context, path string, options gdetect.WaitForOptions) (result gdetect.Result, err error) {
 	if m.WaitForFileMock != nil {
-		return m.WaitForFileMock(ctx, filepath, options)
+		return m.WaitForFileMock(ctx, path, options)
+	}
+	if m.WaitForReaderMock != nil {
+		f, e := os.Open(filepath.Clean(path))
+		if e != nil {
+			return result, e
+		}
+		defer func() {
+			if cerr := f.Close(); cerr != nil && err == nil {
+				err = cerr
+			}
+		}()
+		return m.WaitForReaderMock(ctx, f, options)
 	}
 	panic("WaitForFile not implemented in current test")
 }

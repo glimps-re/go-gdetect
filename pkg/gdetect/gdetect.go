@@ -918,11 +918,13 @@ func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions Wai
 				}
 			}()
 
-			if _, err = io.Copy(tmpFile, r); err != nil {
+			// Compute the SHA256 from the same pass that fills the temp file.
+			hasher := sha256.New()
+			if _, err = io.Copy(io.MultiWriter(tmpFile, hasher), r); err != nil {
 				err = fmt.Errorf("error copying input to temp file: %w", err)
 				return
 			}
-			return c.waitforWithPreGet(ctx, tmpFile, pullTime, submitOptions)
+			return c.waitforWithPreGetHash(ctx, tmpFile, hex.EncodeToString(hasher.Sum(nil)), pullTime, submitOptions)
 		},
 	)
 }
@@ -958,21 +960,32 @@ func (c *Client) waitFor(ctx context.Context, r io.Reader, waitOptions WaitForOp
 }
 
 func (c *Client) waitforWithPreGet(ctx context.Context, r io.ReadSeeker, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
-	// Ensure we hash from the beginning of the reader. Callers such as
-	// WaitForReader hand us a temp file whose offset is already at EOF after
-	// buffering, so without this seek io.Copy would read zero bytes and produce
-	// the SHA256 of an empty file.
-	if _, err = r.Seek(0, io.SeekStart); err != nil {
-		err = fmt.Errorf("error seeking input: %w", err)
-		return
-	}
-	hash := sha256.New()
-	if _, err = io.Copy(hash, r); err != nil {
-		err = fmt.Errorf("error hashing input: %w", err)
-		return
+	return c.waitforWithPreGetHash(ctx, r, "", pullTime, submitOptions)
+}
+
+// waitforWithPreGetHash looks up the result cache by SHA256 ("preget") and
+// submits r on a miss. A non-empty precomputedSHA256 is used as r's content
+// hash; otherwise r is hashed here. On a miss r is rewound and read to submit,
+// so r must be seekable in either case.
+func (c *Client) waitforWithPreGetHash(ctx context.Context, r io.ReadSeeker, precomputedSHA256 string, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
+	readerSHA256 := precomputedSHA256
+	if readerSHA256 == "" {
+		// Ensure we hash from the beginning of the reader. Callers such as
+		// WaitForFile hand us a file whose offset may not be at the start, so
+		// without this seek io.Copy would read zero bytes and produce the
+		// SHA256 of an empty file.
+		if _, err = r.Seek(0, io.SeekStart); err != nil {
+			err = fmt.Errorf("error seeking input: %w", err)
+			return
+		}
+		hash := sha256.New()
+		if _, err = io.Copy(hash, r); err != nil {
+			err = fmt.Errorf("error hashing input: %w", err)
+			return
+		}
+		readerSHA256 = hex.EncodeToString(hash.Sum(nil))
 	}
 	analysisID := ""
-	readerSHA256 := hex.EncodeToString(hash.Sum(nil))
 	result, err = c.GetResultBySHA256(ctx, readerSHA256)
 	httpErr := new(HTTPError)
 	switch {
