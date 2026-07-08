@@ -2,6 +2,10 @@
 
 ## [v1.6.7]
 
+### Changed
+
+* `WaitForReader` reuses temp files from a pool and streams the body with a pooled buffer, avoiding a `CreateTemp`/`Remove` syscall pair and a copy-buffer allocation per request. `Client.Close` releases the pooled files.
+
 ### Fixed
 
 * `WaitForReader` hashes while buffering to the temp file and reuses that hash for the preget cache lookup, removing the second full read pass over the temp file per request.

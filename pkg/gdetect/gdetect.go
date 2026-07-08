@@ -169,12 +169,14 @@ type ClientConfig struct {
 
 // Client is the representation of a Detect API Client.
 type Client struct {
-	lock       *sync.RWMutex
-	Endpoint   string
-	ExpertURL  string
-	Token      string
-	HTTPClient *http.Client
-	syndetect  bool
+	lock         *sync.RWMutex
+	Endpoint     string
+	ExpertURL    string
+	Token        string
+	HTTPClient   *http.Client
+	syndetect    bool
+	tempPool     *tempFilePool
+	tempPoolOnce sync.Once
 }
 
 // Result represent typical json result from Detect API operations like get or
@@ -864,6 +866,26 @@ func addFormField(w *multipart.Writer, field string, value string) (err error) {
 	return
 }
 
+// tempFiles returns the client's temp-file pool, creating it on first use.
+func (c *Client) tempFiles() *tempFilePool {
+	c.tempPoolOnce.Do(func() {
+		c.tempPool = newTempFilePool(os.TempDir(), defaultTempPoolSize)
+	})
+	return c.tempPool
+}
+
+// Close releases the temp files kept idle by the client's pool. It is safe to
+// call more than once and the client remains usable afterwards; a subsequent
+// WaitForReader recreates temp files on demand.
+func (c *Client) Close() {
+	c.lock.RLock()
+	p := c.tempPool
+	c.lock.RUnlock()
+	if p != nil {
+		p.close()
+	}
+}
+
 // WaitForFile submits a local file and blocks until analysis is complete or the
 // configured timeout elapses. It returns the final analysis Result.
 func (c *Client) WaitForFile(ctx context.Context, filePath string, waitOptions WaitForOptions) (result Result, err error) {
@@ -890,37 +912,25 @@ func (c *Client) WaitForFile(ctx context.Context, filePath string, waitOptions W
 }
 
 // WaitForReader submits data from an io.Reader and blocks until analysis is complete
-// or the configured timeout elapses. The reader content is buffered to a temporary
-// file so it can be re-read on cache-miss retries.
+// or the configured timeout elapses. The reader content is buffered to a pooled
+// temporary file so it can be re-read on cache-miss retries.
 func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions WaitForOptions) (result Result, err error) {
 	return c.waitFor(ctx, r, waitOptions,
 		func(ctx context.Context, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
-			tmpFile, err := os.CreateTemp(os.TempDir(), "gdetect-tmp-*")
+			pool := c.tempFiles()
+			tmpFile, err := pool.get()
 			if err != nil {
-				err = fmt.Errorf("error creating temp file: %w", err)
 				return
 			}
+			defer pool.put(tmpFile)
 
-			// Set secure permissions (owner read/write only)
-			if err = tmpFile.Chmod(0o600); err != nil {
-				_ = tmpFile.Close()
-				_ = os.Remove(tmpFile.Name())
-				err = fmt.Errorf("error setting temp file permissions: %w", err)
-				return
-			}
-
-			defer func() {
-				if e := tmpFile.Close(); e != nil {
-					Logger.Warn(fmt.Sprintf("failed to close tmp file, err: %s", e))
-				}
-				if e := os.Remove(tmpFile.Name()); e != nil {
-					Logger.Warn(fmt.Sprintf("failed to remove tmp file, err: %s", e))
-				}
-			}()
-
-			// Compute the SHA256 from the same pass that fills the temp file.
+			// Compute the SHA256 from the same pass that fills the temp file,
+			// using a pooled buffer to avoid a per-request allocation.
 			hasher := sha256.New()
-			if _, err = io.Copy(io.MultiWriter(tmpFile, hasher), r); err != nil {
+			buf := bufPool.Get().(*[]byte)
+			_, err = io.CopyBuffer(io.MultiWriter(tmpFile, hasher), r, *buf)
+			bufPool.Put(buf)
+			if err != nil {
 				err = fmt.Errorf("error copying input to temp file: %w", err)
 				return
 			}
