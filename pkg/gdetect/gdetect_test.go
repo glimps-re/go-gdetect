@@ -13,12 +13,40 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+// testMaxBodySize bounds request bodies read by the test HTTP handlers.
+const testMaxBodySize = 10 * 1024 * 1024
+
+// parseTestMultipartForm parses a size-bounded multipart body and populates
+// req.MultipartForm, req.Form and req.PostForm, so FormValue and FormFile work
+// as after ParseMultipartForm. Parts over 4 KiB spill to temp files, which the
+// net/http server removes when the handler returns.
+func parseTestMultipartForm(rw http.ResponseWriter, req *http.Request) error {
+	req.Body = http.MaxBytesReader(rw, req.Body, testMaxBodySize)
+	mr, err := req.MultipartReader()
+	if err != nil {
+		return err
+	}
+	form, err := mr.ReadForm(4096)
+	if err != nil {
+		return err
+	}
+	req.MultipartForm = form
+	req.Form = req.URL.Query()
+	req.PostForm = url.Values{}
+	for k, v := range form.Value {
+		req.Form[k] = append(req.Form[k], v...)
+		req.PostForm[k] = v
+	}
+	return nil
+}
 
 func compareClients(c1 *Client, c2 *Client) (equal bool) {
 	equal = c1.Endpoint == c2.Endpoint && c1.Token == c2.Token
@@ -311,7 +339,10 @@ func TestClient_SubmitFile(t *testing.T) {
 					if strings.TrimSpace(req.URL.Path) != "/api/lite/v2/submit" {
 						t.Errorf("handler.SubmitFile() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 					}
-					req.Body = http.MaxBytesReader(rw, req.Body, 10*1024*1024)
+					if err := parseTestMultipartForm(rw, req); err != nil {
+						http.Error(rw, err.Error(), http.StatusBadRequest)
+						return
+					}
 					switch strings.TrimSpace(req.FormValue("description")) {
 					case "valid test":
 						_, err := rw.Write([]byte(`{"uuid":"1234", "status": true}`))
@@ -341,9 +372,6 @@ func TestClient_SubmitFile(t *testing.T) {
 							t.Fatalf("cannot write test response: %s", err)
 						}
 					case "file params":
-						if err := req.ParseMultipartForm(4096); err != nil {
-							return
-						}
 						switch {
 						case req.FormValue("bypass-cache") != "true", req.FormValue("description") != "file params", req.FormValue("tags") != "tag1,tag2", req.FormValue("archive_password") != "test":
 							return
@@ -393,9 +421,6 @@ func TestClient_SubmitFile(t *testing.T) {
 							t.Errorf("handler.SubmitFile() %v: expected dynamic=true query param, got %q", tt.name, req.URL.Query().Get("dynamic"))
 						}
 						// Verify all other form fields are present
-						if err := req.ParseMultipartForm(4096); err != nil {
-							t.Fatalf("cannot parse multipart form: %s", err)
-						}
 						switch {
 						case req.FormValue("bypass-cache") != "true",
 							req.FormValue("description") != "dynamic all options",
@@ -915,8 +940,7 @@ func TestClient_WaitForFile(t *testing.T) {
 						if req.Method != http.MethodPost {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						req.Body = http.MaxBytesReader(rw, req.Body, 10*1024*1024)
-						if err := req.ParseMultipartForm(4096); err != nil {
+						if err := parseTestMultipartForm(rw, req); err != nil {
 							http.NotFoundHandler().ServeHTTP(rw, req)
 							return
 						}
