@@ -167,16 +167,22 @@ type ClientConfig struct {
 	// layer instrumentation (e.g. otelhttp) while keeping the managed Insecure/TLS
 	// settings. Ignored when HTTPClient is set.
 	TransportWrapper func(http.RoundTripper) http.RoundTripper
+	// TempFilePoolSize is the number of temp files kept idle for reuse by
+	// WaitForReader. A value of 0 selects a default.
+	TempFilePoolSize int
 }
 
 // Client is the representation of a Detect API Client.
 type Client struct {
-	lock       *sync.RWMutex
-	Endpoint   string
-	ExpertURL  string
-	Token      string
-	HTTPClient *http.Client
-	syndetect  bool
+	lock         *sync.RWMutex
+	Endpoint     string
+	ExpertURL    string
+	Token        string
+	HTTPClient   *http.Client
+	syndetect    bool
+	tempPool     *tempFilePool
+	tempPoolOnce sync.Once
+	tempPoolSize int
 }
 
 // Result represent typical json result from Detect API operations like get or
@@ -460,6 +466,7 @@ func (c *Client) setFromConfig(config ClientConfig) {
 	c.ExpertURL = config.ExpertURL
 	c.Token = config.Token
 	c.syndetect = config.Syndetect
+	c.tempPoolSize = config.TempFilePoolSize
 	if config.HTTPClient != nil {
 		c.HTTPClient = config.HTTPClient
 		return
@@ -899,6 +906,26 @@ func addFormField(w *multipart.Writer, field string, value string) (err error) {
 	return
 }
 
+// tempFiles returns the client's temp-file pool, creating it on first use.
+func (c *Client) tempFiles() *tempFilePool {
+	c.tempPoolOnce.Do(func() {
+		c.tempPool = newTempFilePool(os.TempDir(), c.tempPoolSize)
+	})
+	return c.tempPool
+}
+
+// Close releases the temp files kept idle by the client's pool. It is safe to
+// call more than once and the client remains usable afterwards; a subsequent
+// WaitForReader recreates temp files on demand.
+func (c *Client) Close() {
+	c.lock.RLock()
+	p := c.tempPool
+	c.lock.RUnlock()
+	if p != nil {
+		p.close()
+	}
+}
+
 // WaitForFile submits a local file and blocks until analysis is complete or the
 // configured timeout elapses. It returns the final analysis Result.
 func (c *Client) WaitForFile(ctx context.Context, filePath string, waitOptions WaitForOptions) (result Result, err error) {
@@ -925,39 +952,29 @@ func (c *Client) WaitForFile(ctx context.Context, filePath string, waitOptions W
 }
 
 // WaitForReader submits data from an io.Reader and blocks until analysis is complete
-// or the configured timeout elapses. The reader content is buffered to a temporary
-// file so it can be re-read on cache-miss retries.
+// or the configured timeout elapses. The reader content is buffered to a pooled
+// temporary file so it can be re-read on cache-miss retries.
 func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions WaitForOptions) (result Result, err error) {
 	return c.waitFor(ctx, r, waitOptions,
 		func(ctx context.Context, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
-			tmpFile, err := os.CreateTemp(os.TempDir(), "gdetect-tmp-*")
+			pool := c.tempFiles()
+			tmpFile, err := pool.get()
 			if err != nil {
-				err = fmt.Errorf("error creating temp file: %w", err)
 				return
 			}
+			defer pool.put(tmpFile)
 
-			// Set secure permissions (owner read/write only)
-			if err = tmpFile.Chmod(0o600); err != nil {
-				_ = tmpFile.Close()
-				_ = os.Remove(tmpFile.Name())
-				err = fmt.Errorf("error setting temp file permissions: %w", err)
-				return
-			}
-
-			defer func() {
-				if e := tmpFile.Close(); e != nil {
-					Logger.Warn(fmt.Sprintf("failed to close tmp file, err: %s", e))
-				}
-				if e := os.Remove(tmpFile.Name()); e != nil {
-					Logger.Warn(fmt.Sprintf("failed to remove tmp file, err: %s", e))
-				}
-			}()
-
-			if _, err = io.Copy(tmpFile, r); err != nil {
+			// Compute the SHA256 from the same pass that fills the temp file,
+			// using a pooled buffer to avoid a per-request allocation.
+			hasher := sha256.New()
+			buf := bufPool.Get().(*[]byte)
+			_, err = io.CopyBuffer(io.MultiWriter(tmpFile, hasher), r, *buf)
+			bufPool.Put(buf)
+			if err != nil {
 				err = fmt.Errorf("error copying input to temp file: %w", err)
 				return
 			}
-			return c.waitforWithPreGet(ctx, tmpFile, pullTime, submitOptions)
+			return c.waitforWithPreGetHash(ctx, tmpFile, hex.EncodeToString(hasher.Sum(nil)), pullTime, submitOptions)
 		},
 	)
 }
@@ -993,21 +1010,32 @@ func (c *Client) waitFor(ctx context.Context, r io.Reader, waitOptions WaitForOp
 }
 
 func (c *Client) waitforWithPreGet(ctx context.Context, r io.ReadSeeker, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
-	// Ensure we hash from the beginning of the reader. Callers such as
-	// WaitForReader hand us a temp file whose offset is already at EOF after
-	// buffering, so without this seek io.Copy would read zero bytes and produce
-	// the SHA256 of an empty file.
-	if _, err = r.Seek(0, io.SeekStart); err != nil {
-		err = fmt.Errorf("error seeking input: %w", err)
-		return
-	}
-	hash := sha256.New()
-	if _, err = io.Copy(hash, r); err != nil {
-		err = fmt.Errorf("error hashing input: %w", err)
-		return
+	return c.waitforWithPreGetHash(ctx, r, "", pullTime, submitOptions)
+}
+
+// waitforWithPreGetHash looks up the result cache by SHA256 ("preget") and
+// submits r on a miss. A non-empty precomputedSHA256 is used as r's content
+// hash; otherwise r is hashed here. On a miss r is rewound and read to submit,
+// so r must be seekable in either case.
+func (c *Client) waitforWithPreGetHash(ctx context.Context, r io.ReadSeeker, precomputedSHA256 string, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
+	readerSHA256 := precomputedSHA256
+	if readerSHA256 == "" {
+		// Ensure we hash from the beginning of the reader. Callers such as
+		// WaitForFile hand us a file whose offset may not be at the start, so
+		// without this seek io.Copy would read zero bytes and produce the
+		// SHA256 of an empty file.
+		if _, err = r.Seek(0, io.SeekStart); err != nil {
+			err = fmt.Errorf("error seeking input: %w", err)
+			return
+		}
+		hash := sha256.New()
+		if _, err = io.Copy(hash, r); err != nil {
+			err = fmt.Errorf("error hashing input: %w", err)
+			return
+		}
+		readerSHA256 = hex.EncodeToString(hash.Sum(nil))
 	}
 	analysisID := ""
-	readerSHA256 := hex.EncodeToString(hash.Sum(nil))
 	result, err = c.GetResultBySHA256(ctx, readerSHA256)
 	httpErr := new(HTTPError)
 	switch {

@@ -13,12 +13,40 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+// testMaxBodySize bounds request bodies read by the test HTTP handlers.
+const testMaxBodySize = 10 * 1024 * 1024
+
+// parseTestMultipartForm parses a size-bounded multipart body and populates
+// req.MultipartForm, req.Form and req.PostForm, so FormValue and FormFile work
+// as after ParseMultipartForm. Parts over 4 KiB spill to temp files, which the
+// net/http server removes when the handler returns.
+func parseTestMultipartForm(rw http.ResponseWriter, req *http.Request) error {
+	req.Body = http.MaxBytesReader(rw, req.Body, testMaxBodySize)
+	mr, err := req.MultipartReader()
+	if err != nil {
+		return err
+	}
+	form, err := mr.ReadForm(4096)
+	if err != nil {
+		return err
+	}
+	req.MultipartForm = form
+	req.Form = req.URL.Query()
+	req.PostForm = url.Values{}
+	for k, v := range form.Value {
+		req.Form[k] = append(req.Form[k], v...)
+		req.PostForm[k] = v
+	}
+	return nil
+}
 
 func compareClients(c1 *Client, c2 *Client) (equal bool) {
 	equal = c1.Endpoint == c2.Endpoint && c1.Token == c2.Token
@@ -311,7 +339,10 @@ func TestClient_SubmitFile(t *testing.T) {
 					if strings.TrimSpace(req.URL.Path) != "/api/lite/v2/submit" {
 						t.Errorf("handler.SubmitFile() %v error = unexpected URL: %v", tt.name, strings.TrimSpace(req.URL.Path))
 					}
-					req.Body = http.MaxBytesReader(rw, req.Body, 10*1024*1024)
+					if err := parseTestMultipartForm(rw, req); err != nil {
+						http.Error(rw, err.Error(), http.StatusBadRequest)
+						return
+					}
 					switch strings.TrimSpace(req.FormValue("description")) {
 					case "valid test":
 						_, err := rw.Write([]byte(`{"uuid":"1234", "status": true}`))
@@ -341,9 +372,6 @@ func TestClient_SubmitFile(t *testing.T) {
 							t.Fatalf("cannot write test response: %s", err)
 						}
 					case "file params":
-						if err := req.ParseMultipartForm(4096); err != nil { //nolint:gosec // test handler, input controlled by the test
-							return
-						}
 						switch {
 						case req.FormValue("bypass-cache") != "true", req.FormValue("description") != "file params", req.FormValue("tags") != "tag1,tag2", req.FormValue("archive_password") != "test":
 							return
@@ -393,9 +421,6 @@ func TestClient_SubmitFile(t *testing.T) {
 							t.Errorf("handler.SubmitFile() %v: expected dynamic=true query param, got %q", tt.name, req.URL.Query().Get("dynamic"))
 						}
 						// Verify all other form fields are present
-						if err := req.ParseMultipartForm(4096); err != nil { //nolint:gosec // test handler, input controlled by the test
-							t.Fatalf("cannot parse multipart form: %s", err)
-						}
 						switch {
 						case req.FormValue("bypass-cache") != "true",
 							req.FormValue("description") != "dynamic all options",
@@ -915,8 +940,7 @@ func TestClient_WaitForFile(t *testing.T) {
 						if req.Method != http.MethodPost {
 							t.Errorf("handler.WaitForFile() %v error = unexpected METHOD: %v", tt.name, req.Method)
 						}
-						req.Body = http.MaxBytesReader(rw, req.Body, 10*1024*1024)
-						if err := req.ParseMultipartForm(4096); err != nil { //nolint:gosec // test handler, input controlled by the test
+						if err := parseTestMultipartForm(rw, req); err != nil {
 							http.NotFoundHandler().ServeHTTP(rw, req)
 							return
 						}
@@ -1305,6 +1329,82 @@ func TestClient_WaitForReader_PreGetHashesContent(t *testing.T) {
 	}
 	if gotSearchSHA256 != wantSHA256 {
 		t.Errorf("cache lookup SHA256 = %s, want %s", gotSearchSHA256, wantSHA256)
+	}
+}
+
+// TestClient_WaitForReader_PreGetMissSubmitsContent checks that on a cache miss
+// the preget lookup uses the real content SHA256 (not the empty-file hash) and
+// the submitted body is the full content, i.e. the temp file is rewound before
+// submission.
+func TestClient_WaitForReader_PreGetMissSubmitsContent(t *testing.T) {
+	const content = "A1 regression: miss must submit the real content"
+	wantSHA256 := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
+	const emptySHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+	gotSearchSHA256 := ""
+	gotSubmitBody := ""
+	s := httptest.NewServer(
+		http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			uri := strings.TrimSpace(req.URL.Path)
+			switch {
+			case strings.HasPrefix(uri, "/api/lite/v2/search/"):
+				gotSearchSHA256 = strings.TrimPrefix(uri, "/api/lite/v2/search/")
+				rw.WriteHeader(http.StatusNotFound)
+			case uri == "/api/lite/v2/submit":
+				_, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+				if err != nil {
+					t.Fatalf("could not parse media type: %v", err)
+				}
+				mr := multipart.NewReader(req.Body, params["boundary"])
+				for {
+					part, err := mr.NextPart()
+					if err != nil {
+						t.Fatalf("could not read multipart part: %v", err)
+					}
+					if part.FormName() == "file" {
+						b, e := io.ReadAll(part)
+						if e != nil {
+							t.Fatalf("could not read file part: %v", e)
+						}
+						gotSubmitBody = string(b)
+						break
+					}
+				}
+				if _, e := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`)); e != nil {
+					t.Fatalf("could not write response, error: %v", e)
+				}
+			case strings.HasPrefix(uri, "/api/lite/v2/results/"):
+				if _, e := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`)); e != nil {
+					t.Fatalf("could not write response, error: %v", e)
+				}
+			default:
+				t.Errorf("unexpected URL: %v", uri)
+			}
+		}),
+	)
+	defer s.Close()
+
+	client, err := NewClient(s.URL, token, false, nil)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	_, err = client.WaitForReader(t.Context(), strings.NewReader(content), WaitForOptions{
+		Timeout:  5 * time.Second,
+		PullTime: 10 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("WaitForReader() error = %v", err)
+	}
+
+	if gotSearchSHA256 == emptySHA256 {
+		t.Fatalf("preget used empty-file SHA256: content was not hashed while buffering")
+	}
+	if gotSearchSHA256 != wantSHA256 {
+		t.Errorf("preget SHA256 = %s, want %s", gotSearchSHA256, wantSHA256)
+	}
+	if gotSubmitBody != content {
+		t.Errorf("submitted body = %q, want %q (temp file not rewound before submit)", gotSubmitBody, content)
 	}
 }
 
