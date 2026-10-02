@@ -1260,11 +1260,9 @@ func TestClient_WaitForReader(t *testing.T) {
 	}
 }
 
-// TestClient_WaitForReader_PreGetHashesContent is a regression test for the
-// empty-file SHA256 bug: WaitForReader buffers the reader into a temp file
-// (leaving its offset at EOF), then waitforWithPreGet must seek back to the
-// start before hashing. Without that seek the cache lookup used the SHA256 of
-// an empty file (e3b0c442...b855) instead of the actual content.
+// TestClient_WaitForReader_PreGetHashesContent checks that the preget cache
+// lookup uses the SHA256 of the reader's content, not of the empty temp file
+// (e3b0c442...b855) left at EOF after buffering.
 func TestClient_WaitForReader_PreGetHashesContent(t *testing.T) {
 	const content = "regression: hash must cover the real content"
 	wantSHA256 := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
@@ -1305,6 +1303,81 @@ func TestClient_WaitForReader_PreGetHashesContent(t *testing.T) {
 	}
 	if gotSearchSHA256 != wantSHA256 {
 		t.Errorf("cache lookup SHA256 = %s, want %s", gotSearchSHA256, wantSHA256)
+	}
+}
+
+// TestClient_WaitForReader_PreGetMissSubmitsContent checks that on a cache miss
+// the preget lookup uses the real content SHA256 (not the empty-file hash) and
+// the submitted body is the full content, i.e. the temp file is rewound before
+// submission.
+func TestClient_WaitForReader_PreGetMissSubmitsContent(t *testing.T) {
+	const content = "miss must submit the real content"
+	wantSHA256 := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
+
+	gotSearchSHA256 := ""
+	gotSubmitBody := ""
+	s := httptest.NewServer(
+		http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			uri := strings.TrimSpace(req.URL.Path)
+			switch {
+			case strings.HasPrefix(uri, "/api/lite/v2/search/"):
+				gotSearchSHA256 = strings.TrimPrefix(uri, "/api/lite/v2/search/")
+				rw.WriteHeader(http.StatusNotFound)
+			case uri == "/api/lite/v2/submit":
+				_, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+				if err != nil {
+					t.Errorf("could not parse media type: %v", err)
+					return
+				}
+				mr := multipart.NewReader(req.Body, params["boundary"])
+				for {
+					part, err := mr.NextPart()
+					if err != nil {
+						t.Errorf("could not read multipart part: %v", err)
+						return
+					}
+					if part.FormName() == "file" {
+						b, e := io.ReadAll(part)
+						if e != nil {
+							t.Errorf("could not read file part: %v", e)
+							return
+						}
+						gotSubmitBody = string(b)
+						break
+					}
+				}
+				if _, e := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`)); e != nil {
+					t.Errorf("could not write response, error: %v", e)
+				}
+			case strings.HasPrefix(uri, "/api/lite/v2/results/"):
+				if _, e := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true, "done": true}`)); e != nil {
+					t.Errorf("could not write response, error: %v", e)
+				}
+			default:
+				t.Errorf("unexpected URL: %v", uri)
+			}
+		}),
+	)
+	defer s.Close()
+
+	client, err := NewClient(s.URL, token, false, nil)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	_, err = client.WaitForReader(t.Context(), strings.NewReader(content), WaitForOptions{
+		Timeout:  5 * time.Second,
+		PullTime: 10 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("WaitForReader() error = %v", err)
+	}
+
+	if gotSearchSHA256 != wantSHA256 {
+		t.Errorf("preget SHA256 = %s, want %s", gotSearchSHA256, wantSHA256)
+	}
+	if gotSubmitBody != content {
+		t.Errorf("submitted body = %q, want %q (temp file not rewound before submit)", gotSubmitBody, content)
 	}
 }
 

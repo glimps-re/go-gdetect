@@ -5,6 +5,7 @@
 ### Changed
 
 * `gdetectmock.MockGDetectSubmitter.WaitForFile` falls back to `WaitForReaderMock` over the file content when `WaitForFileMock` is nil, instead of panicking.
+* `WaitForReader` hashes while buffering to the temp file and reuses that hash for the preget cache lookup, removing the second full read pass over the temp file per request.
 
 ### Fixed
 
