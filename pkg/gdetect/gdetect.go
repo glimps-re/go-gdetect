@@ -757,7 +757,6 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 	}
 
 	var (
-		part     io.Writer
 		response responseT
 		resp     *http.Response
 	)
@@ -770,67 +769,8 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 	}()
 
 	writer := multipart.NewWriter(pw)
-
 	go func() {
-		defer func() {
-			if errClose := pw.Close(); errClose != nil {
-				Logger.Warn(fmt.Sprintf("failed to close pipe writer, err: %s", errClose))
-			}
-		}()
-
-		part, err = writer.CreateFormFile("file", submitOptions.Filename)
-		if err != nil {
-			pw.CloseWithError(err)
-			return
-		}
-
-		// Copy file content
-		_, err = io.Copy(part, r)
-		if err != nil {
-			pw.CloseWithError(err)
-			return
-		}
-
-		// Create form-data header with given filename
-		if submitOptions.Filename == "" {
-			submitOptions.Filename = "unknown"
-		}
-
-		// Submit file even if it exists in db
-		if submitOptions.BypassCache {
-			if err = addFormField(writer, "bypass-cache", "true"); err != nil {
-				pw.CloseWithError(err)
-				return
-			}
-		}
-
-		// Add description if filled in
-		if submitOptions.Description != "" {
-			if err = addFormField(writer, "description", submitOptions.Description); err != nil {
-				pw.CloseWithError(err)
-				return
-			}
-		}
-
-		// Add all tags if filled in
-		if len(submitOptions.Tags) > 0 {
-			if err = addFormField(writer, "tags", strings.Join(submitOptions.Tags, ",")); err != nil {
-				pw.CloseWithError(err)
-				return
-			}
-		}
-
-		// Add archive_password if filled in
-		if submitOptions.ArchivePassword != "" {
-			if err = addFormField(writer, "archive_password", submitOptions.ArchivePassword); err != nil {
-				pw.CloseWithError(err)
-				return
-			}
-		}
-
-		if errClose := writer.Close(); errClose != nil {
-			pw.CloseWithError(errClose)
-		}
+		pw.CloseWithError(writeSubmitForm(writer, r, submitOptions))
 	}()
 
 	// Post file to API
@@ -887,6 +827,39 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 	return
 }
 
+// writeSubmitForm streams r as the "file" part followed by the set submit
+// options, then closes w.
+func writeSubmitForm(w *multipart.Writer, r io.Reader, submitOptions SubmitOptions) error {
+	part, err := w.CreateFormFile("file", submitOptions.Filename)
+	if err != nil {
+		return err
+	}
+	if _, err = io.Copy(part, r); err != nil {
+		return err
+	}
+	if submitOptions.BypassCache {
+		if err = addFormField(w, "bypass-cache", "true"); err != nil {
+			return err
+		}
+	}
+	if submitOptions.Description != "" {
+		if err = addFormField(w, "description", submitOptions.Description); err != nil {
+			return err
+		}
+	}
+	if len(submitOptions.Tags) > 0 {
+		if err = addFormField(w, "tags", strings.Join(submitOptions.Tags, ",")); err != nil {
+			return err
+		}
+	}
+	if submitOptions.ArchivePassword != "" {
+		if err = addFormField(w, "archive_password", submitOptions.ArchivePassword); err != nil {
+			return err
+		}
+	}
+	return w.Close()
+}
+
 func addFormField(w *multipart.Writer, field string, value string) (err error) {
 	part, err := w.CreateFormField(field)
 	if err != nil {
@@ -917,7 +890,8 @@ func (c *Client) WaitForFile(ctx context.Context, filePath string, waitOptions W
 		waitOptions.Filename = file.Name()
 	}
 
-	return c.waitFor(ctx, file, waitOptions,
+	return c.waitFor(
+		ctx, file, waitOptions,
 		func(ctx context.Context, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
 			return c.waitforWithPreGet(ctx, file, pullTime, submitOptions)
 		},
@@ -928,7 +902,8 @@ func (c *Client) WaitForFile(ctx context.Context, filePath string, waitOptions W
 // or the configured timeout elapses. The reader content is buffered to a temporary
 // file so it can be re-read on cache-miss retries.
 func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions WaitForOptions) (result Result, err error) {
-	return c.waitFor(ctx, r, waitOptions,
+	return c.waitFor(
+		ctx, r, waitOptions,
 		func(ctx context.Context, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
 			tmpFile, err := os.CreateTemp(os.TempDir(), "gdetect-tmp-*")
 			if err != nil {

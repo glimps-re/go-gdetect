@@ -6,6 +6,10 @@
 
 * `gdetectmock.MockGDetectSubmitter.WaitForFile` falls back to `WaitForReaderMock` over the file content when `WaitForFileMock` is nil, instead of panicking.
 
+### Fixed
+
+* Data race between `SubmitReader`'s form-writer goroutine and its caller on the returned error.
+
 ## [v1.7.0]
 
 ### Added
