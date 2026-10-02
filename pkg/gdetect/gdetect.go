@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coreos/go-semver/semver"
@@ -167,16 +168,23 @@ type ClientConfig struct {
 	// layer instrumentation (e.g. otelhttp) while keeping the managed Insecure/TLS
 	// settings. Ignored when HTTPClient is set.
 	TransportWrapper func(http.RoundTripper) http.RoundTripper
+	// TempFilePoolSize is the number of temp files, each an open descriptor,
+	// kept idle for reuse by WaitForReader: 0 selects a default of 512 and a
+	// negative value disables pooling. It is read once, on the first
+	// WaitForReader; Reconfigure does not resize an existing pool.
+	TempFilePoolSize int
 }
 
 // Client is the representation of a Detect API Client.
 type Client struct {
-	lock       *sync.RWMutex
-	Endpoint   string
-	ExpertURL  string
-	Token      string
-	HTTPClient *http.Client
-	syndetect  bool
+	lock         *sync.RWMutex
+	Endpoint     string
+	ExpertURL    string
+	Token        string
+	HTTPClient   *http.Client
+	syndetect    bool
+	tempPool     atomic.Pointer[tempFilePool]
+	tempPoolSize int
 }
 
 // Result represent typical json result from Detect API operations like get or
@@ -460,6 +468,7 @@ func (c *Client) setFromConfig(config ClientConfig) {
 	c.ExpertURL = config.ExpertURL
 	c.Token = config.Token
 	c.syndetect = config.Syndetect
+	c.tempPoolSize = config.TempFilePoolSize
 	if config.HTTPClient != nil {
 		c.HTTPClient = config.HTTPClient
 		return
@@ -876,6 +885,28 @@ func addFormField(w *multipart.Writer, field string, value string) (err error) {
 	return
 }
 
+// tempFiles returns the client's temp-file pool, creating it on first use.
+func (c *Client) tempFiles() *tempFilePool {
+	if p := c.tempPool.Load(); p != nil {
+		return p
+	}
+	c.lock.RLock()
+	size := c.tempPoolSize
+	c.lock.RUnlock()
+	// A pool losing the race holds no files yet, so dropping it leaks nothing.
+	c.tempPool.CompareAndSwap(nil, newTempFilePool(os.TempDir(), size))
+	return c.tempPool.Load()
+}
+
+// Close removes the client's pooled temp files, including those still in use,
+// once their WaitForReader returns. It is safe to call more than once; the
+// client remains usable, with WaitForReader creating a temp file per call.
+func (c *Client) Close() {
+	if p := c.tempPool.Load(); p != nil {
+		p.close()
+	}
+}
+
 // WaitForFile submits a local file and blocks until analysis is complete or the
 // configured timeout elapses. It returns the final analysis Result.
 func (c *Client) WaitForFile(ctx context.Context, filePath string, waitOptions WaitForOptions) (result Result, err error) {
@@ -903,42 +934,34 @@ func (c *Client) WaitForFile(ctx context.Context, filePath string, waitOptions W
 }
 
 // WaitForReader submits data from an io.Reader and blocks until analysis is complete
-// or the configured timeout elapses. The reader content is buffered to a temporary
-// file so it can be re-read on cache-miss retries.
+// or the configured timeout elapses. The reader content is buffered to a pooled
+// temporary file so it can be re-read on cache-miss retries.
 func (c *Client) WaitForReader(ctx context.Context, r io.Reader, waitOptions WaitForOptions) (result Result, err error) {
 	return c.waitFor(
 		ctx, r, waitOptions,
 		func(ctx context.Context, pullTime time.Duration, submitOptions SubmitOptions) (result Result, err error) {
-			tmpFile, err := os.CreateTemp(os.TempDir(), "gdetect-tmp-*")
+			pool := c.tempFiles()
+			tmpFile, err := pool.get()
 			if err != nil {
-				err = fmt.Errorf("error creating temp file: %w", err)
 				return
 			}
+			defer pool.put(tmpFile)
 
-			// Set secure permissions (owner read/write only)
-			if err = tmpFile.Chmod(0o600); err != nil {
-				_ = tmpFile.Close()
-				_ = os.Remove(tmpFile.Name())
-				err = fmt.Errorf("error setting temp file permissions: %w", err)
-				return
-			}
-
-			defer func() {
-				if e := tmpFile.Close(); e != nil {
-					Logger.Warn(fmt.Sprintf("failed to close tmp file, err: %s", e))
-				}
-				if e := os.Remove(tmpFile.Name()); e != nil {
-					Logger.Warn(fmt.Sprintf("failed to remove tmp file, err: %s", e))
-				}
-			}()
-
-			// Hash in the same pass that fills the temp file.
+			// Compute the SHA256 from the same pass that fills the temp file,
+			// using a pooled buffer to avoid a per-request allocation.
 			hasher := sha256.New()
-			if _, err = io.Copy(io.MultiWriter(tmpFile, hasher), r); err != nil {
+			buf := bufPool.Get().(*[]byte)
+			n, err := io.CopyBuffer(io.MultiWriter(tmpFile, hasher), r, *buf)
+			bufPool.Put(buf)
+			if err != nil {
 				err = fmt.Errorf("error copying input to temp file: %w", err)
 				return
 			}
-			return c.waitforWithPreGet(ctx, tmpFile, hex.EncodeToString(hasher.Sum(nil)), pullTime, submitOptions)
+			// SubmitReader's writer goroutine can outlive a failed submit and
+			// read once more after tmpFile is recycled; a SectionReader reads by
+			// position, so that read cannot move the next owner's file offset.
+			body := io.NewSectionReader(tmpFile, 0, n)
+			return c.waitforWithPreGet(ctx, body, hex.EncodeToString(hasher.Sum(nil)), pullTime, submitOptions)
 		},
 	)
 }

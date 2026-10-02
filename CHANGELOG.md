@@ -2,10 +2,16 @@
 
 ## [v1.7.1]
 
+### Added
+
+* `Client.Close` removes the temp files pooled by `WaitForReader`.
+* `ClientConfig.TempFilePoolSize` sets how many temp files `WaitForReader` keeps idle (default 512, negative disables pooling).
+
 ### Changed
 
-* `gdetectmock.MockGDetectSubmitter.WaitForFile` falls back to `WaitForReaderMock` over the file content when `WaitForFileMock` is nil, instead of panicking.
+* `WaitForReader` reuses temp files from a pool and streams the body with a pooled buffer, avoiding a `CreateTemp`/`Remove` syscall pair and a copy-buffer allocation per request.
 * `WaitForReader` hashes while buffering to the temp file and reuses that hash for the preget cache lookup, removing the second full read pass over the temp file per request.
+* `gdetectmock.MockGDetectSubmitter.WaitForFile` falls back to `WaitForReaderMock` over the file content when `WaitForFileMock` is nil, instead of panicking.
 
 ### Fixed
 
