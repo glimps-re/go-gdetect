@@ -3094,3 +3094,35 @@ func Test_Client_waitForUUID(t *testing.T) {
 		})
 	}
 }
+
+func TestClient_SubmitReader_EmptyFilenameDefaultsToUnknown(t *testing.T) {
+	gotFilename := ""
+	s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		req.Body = http.MaxBytesReader(rw, req.Body, 10*1024*1024)
+		if err := req.ParseMultipartForm(4096); err != nil { //nolint:gosec // G120: body bounded by MaxBytesReader
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		_, header, err := req.FormFile("file")
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		gotFilename = header.Filename
+		if _, err := rw.Write([]byte(`{"uuid":"` + testUUIDValid + `", "status": true}`)); err != nil {
+			t.Errorf("could not write response, error: %v", err)
+		}
+	}))
+	defer s.Close()
+
+	client, err := NewClient(s.URL, token, false, nil)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	if _, err := client.SubmitReader(t.Context(), strings.NewReader("content"), SubmitOptions{}); err != nil {
+		t.Fatalf("SubmitReader() error = %v", err)
+	}
+	if gotFilename != "unknown" {
+		t.Errorf("submitted filename = %q, want %q", gotFilename, "unknown")
+	}
+}

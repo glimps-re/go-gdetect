@@ -9,6 +9,7 @@
 ### Fixed
 
 * Data race between `SubmitReader`'s form-writer goroutine and its caller on the returned error.
+* An empty `SubmitOptions.Filename` is submitted as `unknown` again instead of an empty multipart filename (regression since v1.4.1).
 
 ## [v1.7.0]
 

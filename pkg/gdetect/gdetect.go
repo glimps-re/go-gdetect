@@ -827,10 +827,14 @@ func (c *Client) SubmitReader(ctx context.Context, r io.Reader, submitOptions Su
 	return
 }
 
-// writeSubmitForm streams r as the "file" part followed by the set submit
-// options, then closes w.
+// writeSubmitForm streams r as the "file" part, named "unknown" when no
+// filename is set, followed by the set submit options, then closes w.
 func writeSubmitForm(w *multipart.Writer, r io.Reader, submitOptions SubmitOptions) error {
-	part, err := w.CreateFormFile("file", submitOptions.Filename)
+	filename := submitOptions.Filename
+	if filename == "" {
+		filename = "unknown"
+	}
+	part, err := w.CreateFormFile("file", filename)
 	if err != nil {
 		return err
 	}
