@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -276,6 +278,31 @@ func TestWaitForFile(t *testing.T) {
 		}
 		if !result.Done {
 			t.Error("Expected result to be done")
+		}
+	})
+
+	t.Run("falls back to WaitForReaderMock", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "sample")
+		if err := os.WriteFile(path, []byte("file content"), 0o600); err != nil {
+			t.Fatalf("cannot write sample: %v", err)
+		}
+		got := ""
+		mock := &MockGDetectSubmitter{
+			WaitForReaderMock: func(ctx context.Context, r io.Reader, options gdetect.WaitForOptions) (gdetect.Result, error) {
+				var b strings.Builder
+				if _, err := io.Copy(&b, r); err != nil {
+					return gdetect.Result{}, err
+				}
+				got = b.String()
+				return gdetect.Result{Done: true}, nil
+			},
+		}
+
+		if _, err := mock.WaitForFile(context.Background(), path, gdetect.WaitForOptions{}); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if got != "file content" {
+			t.Errorf("WaitForReaderMock read %q, want %q", got, "file content")
 		}
 	})
 

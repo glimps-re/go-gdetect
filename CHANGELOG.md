@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.7.1]
+
+### Changed
+
+* `gdetectmock.MockGDetectSubmitter.WaitForFile` falls back to `WaitForReaderMock` over the file content when `WaitForFileMock` is nil, instead of panicking.
+
 ## [v1.7.0]
 
 ### Added
